@@ -9,8 +9,10 @@ export interface RoutePoint {
 
 interface YandexMapApi {
   ready(callback: () => void): void;
+  route?: (points: number[][], options?: object) => Promise<unknown>;
   Map: new (element: HTMLElement, state: { center: number[]; zoom: number }, options?: object) => {
     geoObjects: { add(object: unknown): void; remove(object: unknown): void };
+    events: { add(type: string, listener: (event: { get(name: string): unknown }) => void): void };
     setCenter(center: number[], zoom?: number, options?: object): void;
     setBounds(bounds: number[][], options?: object): void;
     destroy(): void;
@@ -64,6 +66,8 @@ export const RouteRecorder: React.FC<{
   const mapRef = useRef<InstanceType<YandexMapApi['Map']> | null>(null);
   const lineRef = useRef<InstanceType<YandexMapApi['Polyline']> | null>(null);
   const markerRef = useRef<InstanceType<YandexMapApi['Placemark']> | null>(null);
+  const navigationRouteRef = useRef<unknown>(null);
+  const currentPositionRef = useRef<{ lat: number; lon: number } | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const ignoreNextFixRef = useRef(false);
   const pointsRef = useRef<RoutePoint[]>([]);
@@ -82,6 +86,33 @@ export const RouteRecorder: React.FC<{
     [points]
   );
 
+  const buildNavigationRoute = (destination: number[]) => {
+    const current = currentPositionRef.current;
+    const map = mapRef.current;
+    const ymaps = window.ymaps;
+    if (!current) {
+      setGpsIssue('Для построения маршрута сначала нажмите «Начать запись» и разрешите геолокацию.');
+      return;
+    }
+    if (!map || !ymaps?.route) {
+      setGpsIssue('Построение маршрута сейчас недоступно.');
+      return;
+    }
+    setGpsIssue(null);
+    setMapStatus('Строю маршрут…');
+    void ymaps.route([[current.lat, current.lon], destination], { mapStateAutoApply: false })
+      .then((route) => {
+        if (navigationRouteRef.current) map.geoObjects.remove(navigationRouteRef.current);
+        navigationRouteRef.current = route;
+        map.geoObjects.add(route);
+        setMapStatus('Маршрут построен • выберите другую точку касанием');
+      })
+      .catch(() => {
+        setMapStatus('Не удалось построить маршрут');
+        setGpsIssue('Яндекс Карты не смогли построить маршрут до выбранной точки. Попробуйте другую точку.');
+      });
+  };
+
   useEffect(() => {
     if (!apiKey) {
       setMapStatus('Не настроен ключ Яндекс Карт');
@@ -98,10 +129,16 @@ export const RouteRecorder: React.FC<{
         try {
           mapRef.current = new window.ymaps.Map(
             mapElementRef.current,
-            { center: initial ? [initial.lat, initial.lon] : [50.9, 6.0], zoom: initial ? 15 : 11 },
+            { center: initial ? [initial.lat, initial.lon] : [52.37, 4.90], zoom: initial ? 15 : 11 },
             { controls: ['zoomControl', 'typeSelector'], suppressMapOpenBlock: true }
           );
-          setMapStatus('Карта готова');
+          mapRef.current.events.add('click', (event) => {
+            const coords = event.get('coords');
+            if (Array.isArray(coords) && coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+              buildNavigationRoute([coords[0], coords[1]]);
+            }
+          });
+          setMapStatus('Карта готова • нажмите на место назначения');
           setMapIssue(null);
         } catch (error) {
           setMapStatus('Не удалось создать карту');
@@ -142,6 +179,7 @@ export const RouteRecorder: React.FC<{
       mapRef.current = null;
       lineRef.current = null;
       markerRef.current = null;
+      navigationRouteRef.current = null;
     };
   }, [apiKey]);
 
@@ -224,6 +262,7 @@ export const RouteRecorder: React.FC<{
           setGpsIssue(`GPS неточный: погрешность около ${Math.round(point.accuracy)} м. Ожидаю лучший сигнал.`);
           return;
         }
+        currentPositionRef.current = { lat: point.lat, lon: point.lon };
         setGpsIssue(null);
         if (ignoreNextFixRef.current) {
           ignoreNextFixRef.current = false;
