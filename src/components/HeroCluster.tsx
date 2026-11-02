@@ -1,9 +1,32 @@
-import React from 'react';
+import React, { useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import {
   PrimaryHeroMetric,
   RideProfile,
   TractionDriveMode,
 } from '../state/dashboardConfig';
+import type { SpeedMilestone } from './WidgetGrid';
+
+type IndicatorLevel = 'ok' | 'warning' | 'error';
+
+const ControllerIndicator: React.FC<{ side: 'ПЕРЕД' | 'ЗАД'; level: IndicatorLevel; detail: string }> = ({ side, level, detail }) => (
+  <div className="flex w-12 shrink-0 flex-col items-center gap-1 sm:w-16" aria-label={`${side}: ${detail}`} title={`${side}: ${detail}`}>
+    <AlertTriangle
+      aria-hidden="true"
+      className={`h-6 w-6 sm:h-8 sm:w-8 ${
+        level === 'error'
+          ? 'text-red-600 animate-pulse'
+          : level === 'warning'
+          ? 'text-orange-500'
+          : 'text-[var(--fg-faint)]'
+      }`}
+      strokeWidth={2.5}
+    />
+    <span className={`text-[8px] sm:text-[9px] font-extrabold tracking-[0.12em] ${level === 'error' ? 'text-red-600' : level === 'warning' ? 'text-orange-500' : 'text-[var(--fg-faint)]'}`}>
+      {side}
+    </span>
+  </div>
+);
 
 interface HeroClusterProps {
   metric: PrimaryHeroMetric;
@@ -20,6 +43,11 @@ interface HeroClusterProps {
   isReverse: boolean;
   anyFault: boolean;
   faultSummary: string;
+  accelerationTimes: Record<SpeedMilestone, number | null>;
+  frontIndicatorLevel: IndicatorLevel;
+  rearIndicatorLevel: IndicatorLevel;
+  frontIndicatorDetail: string;
+  rearIndicatorDetail: string;
   fontLarge: boolean;
   showSubStats: boolean;
   showProfiles: boolean;
@@ -49,6 +77,11 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
   isReverse,
   anyFault,
   faultSummary,
+  accelerationTimes,
+  frontIndicatorLevel,
+  rearIndicatorLevel,
+  frontIndicatorDetail,
+  rearIndicatorDetail,
   fontLarge,
   showSubStats,
   showProfiles,
@@ -106,6 +139,21 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
       ? 'Только Master ID0'
       : 'Только Slave ID1';
 
+  const [milestonesExpanded, setMilestonesExpanded] = useState(false);
+  const lastPointerUpRef = useRef(0);
+  const toggleMilestones = () => setMilestonesExpanded((value) => !value);
+  const handleSpeedPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const now = performance.now();
+    if (now - lastPointerUpRef.current < 360) {
+      toggleMilestones();
+      lastPointerUpRef.current = 0;
+    } else {
+      lastPointerUpRef.current = now;
+    }
+  };
+  const milestoneTargets: SpeedMilestone[] = [30, 60, 75, 90, 100];
+
   return (
     <section className="border border-[var(--line)] bg-[var(--bg-surface)]">
       {anyFault && (
@@ -154,8 +202,25 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
         </div>
       </div>
 
-      {/* Main Handlebar Digital Speedometer */}
-      <div className="relative flex w-full flex-col items-center justify-center px-4 py-5 sm:py-7 text-center select-none">
+      {/* Main Handlebar Digital Speedometer + twin controller warning lamps */}
+      <div className="flex items-center justify-center gap-1 border-b border-[var(--line)] px-1 py-4 sm:gap-3 sm:py-6">
+        <ControllerIndicator side="ПЕРЕД" level={frontIndicatorLevel} detail={frontIndicatorDetail} />
+        <div
+          className="min-w-0 flex-1 text-center select-none"
+          role="button"
+          tabIndex={0}
+          aria-expanded={milestonesExpanded}
+          aria-controls="acceleration-milestones"
+          aria-label="Спидометр. Дважды коснитесь для замеров разгона"
+          title="Двойное касание — показать или скрыть замеры разгона"
+          onPointerUp={handleSpeedPointerUp}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              toggleMilestones();
+            }
+          }}
+        >
         <div className="flex flex-wrap items-center justify-center gap-2 text-[10px] font-medium tracking-[0.2em] uppercase text-[var(--fg-muted)]">
           <span>{mainLabel}</span>
           {fwActive && (
@@ -182,8 +247,10 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
 
         <div className="mt-1 flex items-baseline justify-center gap-2.5">
           <span
-            className={`tabular-nums leading-none font-semibold tracking-tighter text-[var(--fg)] ${
-              fontLarge
+            className={`tabular-nums leading-none font-semibold tracking-tighter text-[var(--fg)] transition-[font-size] duration-300 ease-out ${
+              milestonesExpanded
+                ? 'text-[52px] sm:text-[68px]'
+                : fontLarge
                 ? 'text-[84px] sm:text-[116px]'
                 : 'text-[64px] sm:text-[84px]'
             }`}
@@ -195,9 +262,37 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
           </span>
         </div>
 
-        <span className="mt-1 text-[10px] tracking-widest uppercase text-[var(--fg-faint)]">
+        <span className="mt-1 block text-[9px] tracking-widest uppercase text-[var(--fg-faint)]">
           ACHILLEUS 16S • ЭТАП {perEscBattAmps}А×2 ({perEscBattAmps * 2}А) • {tractionTitle}
         </span>
+        <div
+          id="acceleration-milestones"
+          aria-hidden={!milestonesExpanded}
+          className={`grid transition-[grid-template-rows,opacity,margin] duration-500 ease-out ${milestonesExpanded ? 'mt-3 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'}`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="grid grid-cols-5 border-y border-[var(--line)] bg-[var(--bg)]">
+              {milestoneTargets.map((target) => {
+                const best = accelerationTimes[target];
+                return (
+                  <div key={target} className="flex min-w-0 flex-col items-center justify-center border-r border-[var(--line)] px-0.5 py-2 last:border-r-0">
+                    <span className="text-[8px] sm:text-[10px] font-bold tracking-tight text-[var(--fg-muted)]">0–{target}</span>
+                    <span className={`mt-1 tabular-nums text-[10px] sm:text-sm font-extrabold ${best === null ? 'text-[var(--fg-faint)]' : 'text-[var(--fg)]'}`}>
+                      {best === null ? '—' : `${best.toFixed(2)}с`}
+                    </span>
+                    <span className="text-[7px] sm:text-[8px] uppercase text-[var(--fg-faint)]">км/ч</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="pt-1 text-[8px] tracking-widest uppercase text-[var(--fg-faint)]">Лучший замер • двойное касание — скрыть</div>
+          </div>
+        </div>
+        {!milestonesExpanded && (
+          <span className="mt-1 block text-[8px] tracking-wider uppercase text-[var(--fg-faint)]">Двойное касание • замеры разгона</span>
+        )}
+        </div>
+        <ControllerIndicator side="ЗАД" level={rearIndicatorLevel} detail={rearIndicatorDetail} />
       </div>
 
       {/* Handlebar Tactical Controls */}

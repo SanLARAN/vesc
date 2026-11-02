@@ -40,7 +40,7 @@ import {
   WidgetId,
 } from './state/dashboardConfig';
 import { HeroCluster } from './components/HeroCluster';
-import { ComputedComputerMetrics, DragRunStats, WidgetGrid } from './components/WidgetGrid';
+import { ComputedComputerMetrics, DragRunStats, SpeedMilestone, WidgetGrid } from './components/WidgetGrid';
 import { ControlCommandInput, ControlPad, PadLayoutMode } from './components/ControlPad';
 import { ConnectionTopology, SettingsView } from './components/SettingsView';
 import { ChecklistView } from './components/ChecklistView';
@@ -59,6 +59,68 @@ function formatDuration(totalSec: number): string {
     return `${hrs}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   }
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+const DRAG_THRESHOLDS = [30, 50, 60, 75, 90, 100] as const;
+
+function recordDragThresholds(
+  speedKmh: number,
+  elapsedSec: number,
+  hitThresholds: Set<number>,
+  setStats: React.Dispatch<React.SetStateAction<DragRunStats>>
+): boolean {
+  const hits = DRAG_THRESHOLDS.filter((target) => speedKmh >= target && !hitThresholds.has(target));
+  if (hits.length === 0) return false;
+  hits.forEach((target) => hitThresholds.add(target));
+  setStats((previous) => {
+    const bestTimes = { ...previous.bestTimes };
+    let best0to30Sec = previous.best0to30Sec;
+    let best0to50Sec = previous.best0to50Sec;
+    for (const target of hits) {
+      if (target === 30) {
+        best0to30Sec = best0to30Sec === null ? elapsedSec : Math.min(best0to30Sec, elapsedSec);
+        bestTimes[30] = bestTimes[30] === null ? elapsedSec : Math.min(bestTimes[30]!, elapsedSec);
+      } else if (target === 50) {
+        best0to50Sec = best0to50Sec === null ? elapsedSec : Math.min(best0to50Sec, elapsedSec);
+      } else {
+        const milestone = target as SpeedMilestone;
+        bestTimes[milestone] = bestTimes[milestone] === null
+          ? elapsedSec
+          : Math.min(bestTimes[milestone]!, elapsedSec);
+      }
+    }
+    return { ...previous, best0to30Sec, best0to50Sec, bestTimes };
+  });
+  return hits.includes(100);
+}
+
+const emptyBestTimes = (): DragRunStats['bestTimes'] => ({
+  30: null,
+  60: null,
+  75: null,
+  90: null,
+  100: null,
+});
+
+type ControllerIndicatorLevel = 'ok' | 'warning' | 'error';
+
+function controllerIndicator(
+  telemetry: VescTelemetry,
+  online: boolean,
+  stale: boolean
+): { level: ControllerIndicatorLevel; detail: string } {
+  if (telemetry.faultCode !== 0) {
+    return { level: 'error', detail: `${telemetry.faultText} (#${telemetry.faultCode})` };
+  }
+  if (telemetry.tempFet >= 100 || telemetry.tempMotor >= 95) {
+    return { level: 'error', detail: `Перегрев • FET ${telemetry.tempFet.toFixed(0)}°C / мотор ${telemetry.tempMotor.toFixed(0)}°C` };
+  }
+  if (!online) return { level: 'warning', detail: 'Нет связи с контроллером' };
+  if (stale) return { level: 'warning', detail: 'Телеметрия не обновляется' };
+  if (telemetry.tempFet >= 80 || telemetry.tempMotor >= 80) {
+    return { level: 'warning', detail: `Высокая температура • FET ${telemetry.tempFet.toFixed(0)}°C / мотор ${telemetry.tempMotor.toFixed(0)}°C` };
+  }
+  return { level: 'ok', detail: 'Норма' };
 }
 
 export const App: React.FC = () => {
@@ -107,6 +169,7 @@ export const App: React.FC = () => {
     currentSec: 0,
     best0to30Sec: null,
     best0to50Sec: null,
+    bestTimes: emptyBestTimes(),
   });
   const [peaks, setPeaks] = useState({
     maxSpeedKmh: 0,
@@ -150,13 +213,11 @@ export const App: React.FC = () => {
   const dragInternalRef = useRef<{
     armedFromStop: boolean;
     startTimeMs: number | null;
-    hit30: boolean;
-    hit50: boolean;
+    hitThresholds: Set<number>;
   }>({
-    armedFromStop: true,
+    armedFromStop: false,
     startTimeMs: null,
-    hit30: false,
-    hit50: false,
+    hitThresholds: new Set<number>(),
   });
 
   const updateConfig = useCallback((patch: Partial<OnboardComputerConfig>) => {
@@ -769,8 +830,7 @@ export const App: React.FC = () => {
         if (instSpeed < 0.8) {
           dRef.armedFromStop = true;
           dRef.startTimeMs = null;
-          dRef.hit30 = false;
-          dRef.hit50 = false;
+          dRef.hitThresholds.clear();
           setDragStats((prev) =>
             prev.state === 'ready' ? prev : { ...prev, state: 'ready', currentSec: 0 }
           );
@@ -778,34 +838,13 @@ export const App: React.FC = () => {
           const nowMs = performance.now();
           if (dRef.startTimeMs === null) dRef.startTimeMs = nowMs;
           const elapsed = (nowMs - dRef.startTimeMs) / 1000;
-          if (!dRef.hit30 && instSpeed >= 30) {
-            dRef.hit30 = true;
-            setDragStats((prev) => ({
-              ...prev,
-              best0to30Sec:
-                prev.best0to30Sec === null
-                  ? elapsed
-                  : Math.min(prev.best0to30Sec, elapsed),
-            }));
-          }
-          if (!dRef.hit50 && instSpeed >= 50) {
-            dRef.hit50 = true;
-            dRef.armedFromStop = false;
-            setDragStats((prev) => ({
-              state: 'done',
-              currentSec: elapsed,
-              best0to30Sec: prev.best0to30Sec,
-              best0to50Sec:
-                prev.best0to50Sec === null
-                  ? elapsed
-                  : Math.min(prev.best0to50Sec, elapsed),
-            }));
-          } else if (elapsed > 15) {
-            dRef.armedFromStop = false;
-            setDragStats((prev) => ({ ...prev, state: 'done', currentSec: elapsed }));
-          } else {
-            setDragStats((prev) => ({ ...prev, state: 'running', currentSec: elapsed }));
-          }
+          const reached100 = recordDragThresholds(instSpeed, elapsed, dRef.hitThresholds, setDragStats);
+          if (reached100) dRef.armedFromStop = false;
+          setDragStats((prev) => ({
+            ...prev,
+            state: reached100 ? 'done' : 'running',
+            currentSec: elapsed,
+          }));
         }
       } else {
         if (isParked) {
@@ -899,6 +938,16 @@ export const App: React.FC = () => {
     (topology === 'dual-ble'
       ? Boolean(link2Name)
       : Boolean(link1Name) && rearSlaveTelemetry.updatedAt > 0);
+  const frontIndicator = controllerIndicator(
+    frontMasterTelemetry,
+    frontOnline,
+    topology !== 'sim' && frontMasterTelemetry.updatedAt > 0 && Date.now() - frontMasterTelemetry.updatedAt > 3000
+  );
+  const rearIndicator = controllerIndicator(
+    rearSlaveTelemetry,
+    rearOnline,
+    topology !== 'sim' && rearSlaveTelemetry.updatedAt > 0 && Date.now() - rearSlaveTelemetry.updatedAt > 3000
+  );
 
   const speedFront = erpmToKmh(
     frontMasterTelemetry.erpm,
@@ -928,34 +977,19 @@ export const App: React.FC = () => {
     if (speedAbs < 0.8) {
       dRef.armedFromStop = true;
       dRef.startTimeMs = null;
-      dRef.hit30 = false;
-      dRef.hit50 = false;
+      dRef.hitThresholds.clear();
       setDragStats((prev) => ({ ...prev, state: 'ready', currentSec: 0 }));
     } else if (dRef.armedFromStop) {
       const nowMs = performance.now();
       if (dRef.startTimeMs === null) dRef.startTimeMs = nowMs;
       const elapsed = (nowMs - dRef.startTimeMs) / 1000;
-      if (!dRef.hit30 && speedAbs >= 30) {
-        dRef.hit30 = true;
-        setDragStats((prev) => ({
-          ...prev,
-          best0to30Sec:
-            prev.best0to30Sec === null ? elapsed : Math.min(prev.best0to30Sec, elapsed),
-        }));
-      }
-      if (!dRef.hit50 && speedAbs >= 50) {
-        dRef.hit50 = true;
-        dRef.armedFromStop = false;
-        setDragStats((prev) => ({
-          state: 'done',
-          currentSec: elapsed,
-          best0to30Sec: prev.best0to30Sec,
-          best0to50Sec:
-            prev.best0to50Sec === null ? elapsed : Math.min(prev.best0to50Sec, elapsed),
-        }));
-      } else {
-        setDragStats((prev) => ({ ...prev, state: 'running', currentSec: elapsed }));
-      }
+      const reached100 = recordDragThresholds(speedAbs, elapsed, dRef.hitThresholds, setDragStats);
+      if (reached100) dRef.armedFromStop = false;
+      setDragStats((prev) => ({
+        ...prev,
+        state: reached100 ? 'done' : 'running',
+        currentSec: elapsed,
+      }));
     }
   }, [speedAbs, topology]);
 
@@ -1263,6 +1297,11 @@ export const App: React.FC = () => {
               isReverse={speedSigned < -0.4}
               anyFault={anyFault}
               faultSummary={faultSummary}
+              accelerationTimes={dragStats.bestTimes}
+              frontIndicatorLevel={frontIndicator.level}
+              rearIndicatorLevel={rearIndicator.level}
+              frontIndicatorDetail={frontIndicator.detail}
+              rearIndicatorDetail={rearIndicator.detail}
               fontLarge={config.fontDensity === 'large'}
               showSubStats={true}
               showProfiles={false}
@@ -1323,6 +1362,7 @@ export const App: React.FC = () => {
                   currentSec: 0,
                   best0to30Sec: null,
                   best0to50Sec: null,
+                  bestTimes: emptyBestTimes(),
                 })
               }
             />

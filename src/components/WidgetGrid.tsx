@@ -11,11 +11,14 @@ import {
 import { VescFirmwareInfo, VescTelemetry } from '../protocol/vescProtocol';
 import { TractionDriveMode, WidgetId, WidgetItemConfig } from '../state/dashboardConfig';
 
+export type SpeedMilestone = 30 | 60 | 75 | 90 | 100;
+
 export interface DragRunStats {
   state: 'ready' | 'running' | 'done';
   currentSec: number;
   best0to30Sec: number | null;
   best0to50Sec: number | null;
+  bestTimes: Record<SpeedMilestone, number | null>;
 }
 
 export interface ComputedComputerMetrics {
