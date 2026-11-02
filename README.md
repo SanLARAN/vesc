@@ -23,6 +23,8 @@ npm ci
 npm run dev
 ```
 
-## GitHub Pages
+## GitHub Pages и ключ Яндекс Карт
 
-GitHub Actions собирает сайт при push в ветку `arena/233649e9-vesc` и публикует `dist` на Pages. Vite настроен для project site по адресу `/vesc/`.
+GitHub Actions собирает сайт и публикует `dist` на Pages. Для карты задайте в настройках репозитория GitHub → **Settings → Secrets and variables → Actions** секрет `VITE_YANDEX_MAPS_API_KEY`; workflow использует его при сборке. После изменения секрета запустите workflow повторно или отправьте новый commit.
+
+Ключ JavaScript API в любом случае попадёт в публичный браузерный bundle. Ограничьте его разрешёнными HTTP referrer-доменами, включая `https://sanlaran.github.io/*`, в кабинете Яндекс Cloud. Не используйте для клиентской карты ключ с неограниченными правами.
