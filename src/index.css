@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+:root,
+[data-theme="dark"] {
+  --bg: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-subtle: #141414;
+  --fg: #ffffff;
+  --fg-muted: #9a9a9a;
+  --fg-faint: #525252;
+  --line: #222222;
+  --line-strong: #404040;
+  --inv-bg: #ffffff;
+  --inv-fg: #000000;
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-surface: #f7f7f7;
+  --bg-subtle: #ededed;
+  --fg: #000000;
+  --fg-muted: #595959;
+  --fg-faint: #9e9e9e;
+  --line: #dfdfdf;
+  --line-strong: #b5b5b5;
+  color-scheme: light;
+}
+
+@layer base {
+  html,
+  body {
+    overscroll-behavior: none;
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.touch-control {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Monochrome range slider */
+input[type="range"].mono-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--line-strong);
+  outline: none;
+}
+
+input[type="range"].mono-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--inv-bg);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--inv-bg);
+  cursor: pointer;
+}
+
+input[type="range"].mono-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--inv-bg);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--inv-bg);
+  cursor: pointer;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+}
+
+/* Instrument mode: keep only the BLE connect/disconnect control and telemetry. */
+.dashboard-only nav,
+.dashboard-only button:not(.connect-control) {
+  display: none !important;
+}

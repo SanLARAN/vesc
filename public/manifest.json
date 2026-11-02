@@ -1,0 +1,11 @@
+{
+  "name": "VESC Бортовой Компьютер — 2× 75100",
+  "short_name": "VESC БК",
+  "description": "Минималистичный чёрно-белый бортовой компьютер и Web Bluetooth пульт для 2× Flipsky 75100 Pro V2",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "any"
+}
