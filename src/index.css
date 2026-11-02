@@ -98,7 +98,3 @@ input[type="range"].mono-range::-moz-range-thumb {
 .dashboard-only button:not(.connect-control):not(.route-control):not(.calibration-control):not(.hud-control) {
   display: none !important;
 }
-
-.yandex-route-map {
-  filter: grayscale(1) contrast(1.04);
-}

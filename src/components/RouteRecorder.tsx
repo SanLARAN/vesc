@@ -5,6 +5,7 @@ export interface RoutePoint {
   lon: number;
   at: number;
   accuracy: number;
+  speedKmh?: number;
 }
 
 interface YandexMapApi {
@@ -57,17 +58,27 @@ function formatDistance(meters: number): string {
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} км` : `${Math.round(meters)} м`;
 }
 
+function speedColor(speedKmh: number): string {
+  if (speedKmh >= 30) return '#ef4444';
+  if (speedKmh >= 20) return '#f97316';
+  if (speedKmh >= 10) return '#eab308';
+  return '#22c55e';
+}
+
 export const RouteRecorder: React.FC<{
   apiKey: string;
   onIssue: (message: string | null) => void;
   hudCompact?: boolean;
-}> = ({ apiKey, onIssue, hudCompact = false }) => {
+  speedKmh?: number;
+}> = ({ apiKey, onIssue, hudCompact = false, speedKmh }) => {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<InstanceType<YandexMapApi['Map']> | null>(null);
-  const lineRef = useRef<InstanceType<YandexMapApi['Polyline']> | null>(null);
+  const lineRefs = useRef<InstanceType<YandexMapApi['Polyline']>[]>([]);
   const markerRef = useRef<InstanceType<YandexMapApi['Placemark']> | null>(null);
   const navigationRouteRef = useRef<unknown>(null);
   const currentPositionRef = useRef<{ lat: number; lon: number } | null>(null);
+  const currentSpeedRef = useRef(speedKmh);
+  currentSpeedRef.current = speedKmh;
   const watchIdRef = useRef<number | null>(null);
   const ignoreNextFixRef = useRef(false);
   const pointsRef = useRef<RoutePoint[]>([]);
@@ -83,6 +94,10 @@ export const RouteRecorder: React.FC<{
 
   const distance = useMemo(
     () => points.slice(1).reduce((sum, point, index) => sum + distanceMeters(points[index], point), 0),
+    [points]
+  );
+  const maxRecordedSpeed = useMemo(
+    () => points.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0),
     [points]
   );
 
@@ -177,7 +192,7 @@ export const RouteRecorder: React.FC<{
       cancelled = true;
       mapRef.current?.destroy();
       mapRef.current = null;
-      lineRef.current = null;
+      lineRefs.current = [];
       markerRef.current = null;
       navigationRouteRef.current = null;
     };
@@ -188,26 +203,37 @@ export const RouteRecorder: React.FC<{
     const map = mapRef.current;
     const ymaps = window.ymaps;
     if (!map || !ymaps) return;
+    lineRefs.current.forEach((line) => map.geoObjects.remove(line));
+    lineRefs.current = [];
     if (points.length === 0) {
-      if (lineRef.current) map.geoObjects.remove(lineRef.current);
       if (markerRef.current) map.geoObjects.remove(markerRef.current);
-      lineRef.current = null;
       markerRef.current = null;
       return;
     }
     const coords = points.map((point) => [point.lat, point.lon]);
-    if (points.length > 1) {
-      if (!lineRef.current) {
-        lineRef.current = new ymaps.Polyline(
-          coords,
-          { hintContent: 'Маршрут Achilleus' },
-          { strokeColor: '#111111', strokeWidth: 5, opacity: 0.9 }
-        );
-        map.geoObjects.add(lineRef.current);
+    const runs: { coords: number[][]; color: string; speed: number }[] = [];
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const current = points[index];
+      const segmentSpeed = ((previous.speedKmh ?? 0) + (current.speedKmh ?? 0)) / 2;
+      const color = speedColor(segmentSpeed);
+      const activeRun = runs[runs.length - 1];
+      if (activeRun?.color === color) {
+        activeRun.coords.push([current.lat, current.lon]);
+        activeRun.speed = segmentSpeed;
       } else {
-        lineRef.current.geometry.setCoordinates(coords);
+        runs.push({ coords: [[previous.lat, previous.lon], [current.lat, current.lon]], color, speed: segmentSpeed });
       }
     }
+    runs.forEach((run) => {
+      const line = new ymaps.Polyline(
+        run.coords,
+        { hintContent: `Скорость около ${Math.round(run.speed)} км/ч` },
+        { strokeColor: run.color, strokeWidth: 6, opacity: 0.95 }
+      );
+      lineRefs.current.push(line);
+      map.geoObjects.add(line);
+    });
     const latest = coords[coords.length - 1];
     if (!markerRef.current) {
       markerRef.current = new ymaps.Placemark(latest, { hintContent: 'Последняя точка' }, {
@@ -251,11 +277,24 @@ export const RouteRecorder: React.FC<{
     setRecording(true);
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
+        const at = position.timestamp || Date.now();
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const previousPoint = pointsRef.current.at(-1);
+        const elapsedSeconds = previousPoint ? (at - previousPoint.at) / 1000 : 0;
+        const derivedSpeed = previousPoint && elapsedSeconds > 0
+          ? distanceMeters(previousPoint, { lat, lon, at, accuracy: position.coords.accuracy }) / elapsedSeconds * 3.6
+          : null;
+        const gpsSpeed = position.coords.speed !== null && Number.isFinite(position.coords.speed)
+          ? Math.max(0, position.coords.speed * 3.6)
+          : derivedSpeed;
+        const vescSpeed = currentSpeedRef.current;
         const point: RoutePoint = {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-          at: position.timestamp || Date.now(),
+          lat,
+          lon,
+          at,
           accuracy: position.coords.accuracy,
+          speedKmh: Number.isFinite(vescSpeed) ? Math.abs(vescSpeed ?? 0) : Math.max(0, gpsSpeed ?? 0),
         };
         setGpsAccuracy(point.accuracy);
         if (point.accuracy > 60) {
@@ -300,7 +339,7 @@ export const RouteRecorder: React.FC<{
   const exportGpx = () => {
     if (points.length === 0) return;
     const track = points.map((point) =>
-      `<trkpt lat="${point.lat}" lon="${point.lon}"><time>${new Date(point.at).toISOString()}</time></trkpt>`
+      `<trkpt lat="${point.lat}" lon="${point.lon}"><time>${new Date(point.at).toISOString()}</time><extensions><speed>${(point.speedKmh ?? 0) / 3.6}</speed></extensions></trkpt>`
     ).join('');
     const gpx = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Achilleus Onboard Computer" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Dualtron Achilleus</name><trkseg>${track}</trkseg></trk></gpx>`;
     const url = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }));
@@ -317,7 +356,7 @@ export const RouteRecorder: React.FC<{
         <div className="min-w-0">
           <h2 className={`${hudCompact ? 'text-[8px]' : 'text-xs'} font-bold tracking-[0.14em] uppercase`}>МАРШРУТ • ЯНДЕКС</h2>
           <p className={`mt-0.5 truncate ${hudCompact ? 'text-[7px]' : 'mt-1 text-[10px]'} text-[var(--fg-muted)]`}>
-            {mapStatus} • {points.length} точек • {formatDistance(distance)}
+            {mapStatus} • {points.length} точек • {formatDistance(distance)} • макс. {Math.round(maxRecordedSpeed)} км/ч
             {gpsAccuracy !== null ? ` • GPS ±${Math.round(gpsAccuracy)}м` : ''}
           </p>
         </div>
@@ -335,6 +374,13 @@ export const RouteRecorder: React.FC<{
             GPX
           </button>
         </div>
+      </div>
+      <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Цвет маршрута по скорости">
+        <span className="shrink-0 font-bold text-[var(--fg-muted)]">КМ/Ч</span>
+        <span className="flex items-center gap-0.5 text-green-500"><i className="block h-1.5 w-2 bg-green-500" />0–10</span>
+        <span className="flex items-center gap-0.5 text-yellow-500"><i className="block h-1.5 w-2 bg-yellow-500" />10–20</span>
+        <span className="flex items-center gap-0.5 text-orange-500"><i className="block h-1.5 w-2 bg-orange-500" />20–30</span>
+        <span className="flex items-center gap-0.5 text-red-500"><i className="block h-1.5 w-2 bg-red-500" />30+</span>
       </div>
       {!apiKey ? (
         <div className={`flex items-center justify-center px-2 text-center text-[8px] text-[var(--fg-muted)] ${hudCompact ? 'min-h-0 flex-1' : 'h-32 px-4 text-xs'}`}>
