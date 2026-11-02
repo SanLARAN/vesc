@@ -176,6 +176,9 @@ export const WidgetGrid: React.FC<WidgetGridProps> = ({
               </span>
               <span>{metrics.cellVoltage.toFixed(2)} В/яч</span>
             </div>
+            <div className="text-[9px] tracking-wider uppercase text-[var(--fg-faint)]">
+              SOC — оценка по кривой напряжения + счётчикам А·ч VESC
+            </div>
           </div>
         );
 
