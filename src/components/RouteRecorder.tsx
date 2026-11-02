@@ -58,7 +58,8 @@ function formatDistance(meters: number): string {
 export const RouteRecorder: React.FC<{
   apiKey: string;
   onIssue: (message: string | null) => void;
-}> = ({ apiKey, onIssue }) => {
+  hudCompact?: boolean;
+}> = ({ apiKey, onIssue, hudCompact = false }) => {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<InstanceType<YandexMapApi['Map']> | null>(null);
   const lineRef = useRef<InstanceType<YandexMapApi['Polyline']> | null>(null);
@@ -230,11 +231,10 @@ export const RouteRecorder: React.FC<{
           mapRef.current?.setCenter([point.lat, point.lon], 16, { duration: 250 });
           return;
         }
-        setPoints((previous) => {
-          const last = previous[previous.length - 1];
-          if (last && distanceMeters(last, point) < 4) return previous;
-          return [...previous, point].slice(-5000);
-        });
+        const last = pointsRef.current.at(-1);
+        if (last && distanceMeters(last, point) < 4) return;
+        mapRef.current?.setCenter([point.lat, point.lon], 16, { duration: 250 });
+        setPoints((previous) => [...previous, point].slice(-5000));
       },
       (error) => {
         setRecording(false);
@@ -273,38 +273,38 @@ export const RouteRecorder: React.FC<{
   };
 
   return (
-    <section className="overflow-hidden border border-[var(--line)] bg-[var(--bg-surface)]">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] px-3 py-2.5">
-        <div>
-          <h2 className="text-xs font-bold tracking-[0.14em] uppercase">МАРШРУТ • ЯНДЕКС КАРТЫ</h2>
-          <p className="mt-1 text-[10px] text-[var(--fg-muted)]">
+    <section className={`overflow-hidden border border-[var(--line)] bg-[var(--bg-surface)] ${hudCompact ? 'flex h-full min-h-0 flex-col' : ''}`}>
+      <div className={`flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] ${hudCompact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
+        <div className="min-w-0">
+          <h2 className={`${hudCompact ? 'text-[8px]' : 'text-xs'} font-bold tracking-[0.14em] uppercase`}>МАРШРУТ • ЯНДЕКС</h2>
+          <p className={`mt-0.5 truncate ${hudCompact ? 'text-[7px]' : 'mt-1 text-[10px]'} text-[var(--fg-muted)]`}>
             {mapStatus} • {points.length} точек • {formatDistance(distance)}
             {gpsAccuracy !== null ? ` • GPS ±${Math.round(gpsAccuracy)}м` : ''}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1">
           {!recording ? (
-            <button type="button" onClick={startRecording} className="route-control border border-[var(--fg)] bg-[var(--inv-bg)] px-3 py-2 text-[10px] font-bold uppercase text-[var(--inv-fg)]">
+            <button type="button" onClick={startRecording} className={`route-control border border-[var(--fg)] bg-[var(--inv-bg)] ${hudCompact ? 'px-1.5 py-1 text-[7px]' : 'px-3 py-2 text-[10px]'} font-bold uppercase text-[var(--inv-fg)]`}>
               НАЧАТЬ ЗАПИСЬ
             </button>
           ) : (
-            <button type="button" onClick={stopRecording} className="route-control border border-[var(--fg)] bg-[var(--inv-bg)] px-3 py-2 text-[10px] font-bold uppercase text-[var(--inv-fg)]">
+            <button type="button" onClick={stopRecording} className={`route-control border border-[var(--fg)] bg-[var(--inv-bg)] ${hudCompact ? 'px-1.5 py-1 text-[7px]' : 'px-3 py-2 text-[10px]'} font-bold uppercase text-[var(--inv-fg)]`}>
               ОСТАНОВИТЬ
             </button>
           )}
-          <button type="button" onClick={exportGpx} disabled={points.length === 0} className="route-control border border-[var(--line-strong)] px-3 py-2 text-[10px] font-bold uppercase disabled:opacity-40">
+          <button type="button" onClick={exportGpx} disabled={points.length === 0} className={`route-control border border-[var(--line-strong)] ${hudCompact ? 'px-1.5 py-1 text-[7px]' : 'px-3 py-2 text-[10px]'} font-bold uppercase disabled:opacity-40`}>
             GPX
           </button>
         </div>
       </div>
       {!apiKey ? (
-        <div className="flex h-32 items-center justify-center px-4 text-center text-xs text-[var(--fg-muted)]">
+        <div className={`flex items-center justify-center px-2 text-center text-[8px] text-[var(--fg-muted)] ${hudCompact ? 'min-h-0 flex-1' : 'h-32 px-4 text-xs'}`}>
           Карта недоступна без ключа API; GPS-запись доступна, но точки не будут показаны на карте.
         </div>
       ) : (
-        <div ref={mapElementRef} className="yandex-route-map h-64 w-full sm:h-80" aria-label="Карта и GPS-маршрут" />
+        <div ref={mapElementRef} className={`yandex-route-map w-full ${hudCompact ? 'min-h-0 flex-1' : 'h-64 sm:h-80'}`} aria-label="Карта и GPS-маршрут" />
       )}
-      <div className="border-t border-[var(--line)] px-3 py-2 text-[10px] text-[var(--fg-muted)]">
+      <div className={`border-t border-[var(--line)] px-3 py-2 text-[10px] text-[var(--fg-muted)] ${hudCompact ? 'hidden' : ''}`}>
         Точки маршрута сохраняются только в памяти этого браузера; для отображения карта запрашивает тайлы у Яндекса. Экспорт GPX сохраняет копию на телефон.
       </div>
     </section>

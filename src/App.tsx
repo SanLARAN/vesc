@@ -1377,6 +1377,12 @@ export const App: React.FC = () => {
         rearLevel={rearIndicator.level}
         frontDetail={frontIndicator.detail}
         rearDetail={rearIndicator.detail}
+        frontFetTemp={frontMasterTelemetry.tempFet}
+        rearFetTemp={rearSlaveTelemetry.tempFet}
+        frontMotorTemp={frontMasterTelemetry.tempMotor}
+        rearMotorTemp={rearSlaveTelemetry.tempMotor}
+        fetWarnTemp={config.fetWarnTempC}
+        motorWarnTemp={config.motorWarnTempC}
         brakeActive={totalBattCurrent < -0.6}
         regenAmps={totalBattCurrent}
         powerKw={totalPowerWatts / 1000}
@@ -1385,6 +1391,8 @@ export const App: React.FC = () => {
         estimatedRangeKm={computerMetrics.estimatedRangeKm}
         connectionLabel={topology === 'sim' ? 'ДЕМО • НЕ ДАННЫЕ С САМОКАТА' : link1Name ? `LIVE • ${link1Name}` : 'НЕТ СВЯЗИ'}
         alerts={systemAlerts}
+        mapsApiKey={YANDEX_MAPS_API_KEY}
+        onRouteIssue={reportRouteIssue}
         onExit={() => {
           setHudMode(false);
           if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
