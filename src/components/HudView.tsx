@@ -8,6 +8,7 @@ type LampLevel = 'ok' | 'warning' | 'error';
 interface HudViewProps {
   speedKmh: number;
   recordedSpeedKmh?: number;
+  recordedPowerKw?: number;
   accelerationTimes: Record<SpeedMilestone, number | null>;
   frontLevel: LampLevel;
   rearLevel: LampLevel;
@@ -57,6 +58,7 @@ const TempLight: React.FC<{ label: string; temp: number; warningAt: number; crit
 const HudView: React.FC<HudViewProps> = ({
   speedKmh,
   recordedSpeedKmh,
+  recordedPowerKw,
   accelerationTimes,
   frontLevel,
   rearLevel,
@@ -157,7 +159,7 @@ const HudView: React.FC<HudViewProps> = ({
           <div className={`hud-map-panel absolute inset-y-0 right-0 z-20 w-[58%] transition-transform duration-700 ease-in-out ${mapOpen ? 'translate-x-0' : 'translate-x-[105%]'}`}>
             <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-10 bg-gradient-to-r from-black via-black/75 to-transparent sm:w-16" />
             <div className="h-full overflow-hidden border-y border-l border-white/20 bg-black/90 shadow-[-24px_0_55px_rgba(0,0,0,0.65)]">
-              <RouteRecorder apiKey={mapsApiKey} onIssue={onRouteIssue} hudCompact speedKmh={recordedSpeedKmh} />
+              <RouteRecorder apiKey={mapsApiKey} onIssue={onRouteIssue} hudCompact speedKmh={recordedSpeedKmh} powerKw={recordedPowerKw} />
             </div>
           </div>
 

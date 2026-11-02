@@ -6,6 +6,7 @@ export interface RoutePoint {
   at: number;
   accuracy: number;
   speedKmh?: number;
+  powerKw?: number;
 }
 
 interface RecordedTrip {
@@ -15,6 +16,9 @@ interface RecordedTrip {
   maxSpeedKmh: number;
   startedAt: number;
   endedAt: number;
+  averageSpeedKmh: number;
+  energyWh: number | null;
+  consumptionWhPerKm: number | null;
 }
 
 interface YandexMapApi {
@@ -44,8 +48,18 @@ declare global {
 const ROUTE_STORAGE_KEY = 'achilleus-yandex-route-v1';
 const TRIPS_STORAGE_KEY = 'achilleus-trip-history-v1';
 const SPEED_COLORS_STORAGE_KEY = 'achilleus-route-speed-colors-v1';
+const SPEED_THRESHOLDS_STORAGE_KEY = 'achilleus-route-speed-thresholds-v1';
 const DEFAULT_SPEED_COLORS = ['#22c55e', '#eab308', '#f97316', '#ef4444'] as const;
+const DEFAULT_SPEED_THRESHOLDS = [10, 20, 30] as const;
 type SpeedColorSet = [string, string, string, string];
+type SpeedThresholdSet = [number, number, number];
+interface TripAnalytics {
+  distanceMeters: number;
+  maxSpeedKmh: number;
+  averageSpeedKmh: number;
+  energyWh: number | null;
+  consumptionWhPerKm: number | null;
+}
 const MAX_SAVED_TRIPS = 6;
 const SCRIPT_ID = 'yandex-maps-api-v2';
 
@@ -59,6 +73,19 @@ function loadSavedSpeedColors(): SpeedColorSet {
     // Use the default speed palette when local storage is unavailable or invalid.
   }
   return [...DEFAULT_SPEED_COLORS];
+}
+
+function loadSavedSpeedThresholds(): SpeedThresholdSet {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SPEED_THRESHOLDS_STORAGE_KEY) ?? 'null') as unknown;
+    if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((value) => Number.isInteger(value) && value >= 1 && value <= 100)
+      && parsed[0] < parsed[1] && parsed[1] < parsed[2]) {
+      return parsed as SpeedThresholdSet;
+    }
+  } catch {
+    // Keep default speed bands when preferences are missing or malformed.
+  }
+  return [...DEFAULT_SPEED_THRESHOLDS];
 }
 
 function loadSavedTrips(): RecordedTrip[] {
@@ -82,11 +109,11 @@ function tripIdFor(points: RoutePoint[]): string {
 function createRecordedTrip(routePoints: RoutePoint[]): RecordedTrip | null {
   if (routePoints.length < 2) return null;
   const savedPoints = routePoints.slice(-5000);
+  const analytics = calculateTripAnalytics(savedPoints);
   return {
     id: tripIdFor(savedPoints),
     points: savedPoints,
-    distanceMeters: savedPoints.slice(1).reduce((sum, point, index) => sum + distanceMeters(savedPoints[index], point), 0),
-    maxSpeedKmh: savedPoints.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0),
+    ...analytics,
     startedAt: savedPoints[0].at,
     endedAt: savedPoints[savedPoints.length - 1].at,
   };
@@ -111,6 +138,31 @@ function distanceMeters(a: RoutePoint, b: RoutePoint): number {
   return 6371000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+function calculateTripAnalytics(points: RoutePoint[]): TripAnalytics {
+  const distance = points.slice(1).reduce((sum, point, index) => sum + distanceMeters(points[index], point), 0);
+  const elapsedMs = points.length > 1 ? Math.max(0, points[points.length - 1].at - points[0].at) : 0;
+  const maxSpeed = points.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0);
+  let energyWh = 0;
+  let hasPowerSamples = false;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const elapsedSeconds = (current.at - previous.at) / 1000;
+    if (elapsedSeconds <= 0 || elapsedSeconds > 60 || previous.powerKw === undefined || current.powerKw === undefined) continue;
+    energyWh += ((previous.powerKw + current.powerKw) / 2) * 1000 * elapsedSeconds / 3600;
+    hasPowerSamples = true;
+  }
+  const netEnergy = hasPowerSamples ? Math.max(0, energyWh) : null;
+  const distanceKm = distance / 1000;
+  return {
+    distanceMeters: distance,
+    maxSpeedKmh: maxSpeed,
+    averageSpeedKmh: elapsedMs > 0 ? distanceKm / (elapsedMs / 3600000) : 0,
+    energyWh: netEnergy,
+    consumptionWhPerKm: netEnergy !== null && distanceKm > 0.1 ? netEnergy / distanceKm : null,
+  };
+}
+
 function formatDistance(meters: number): string {
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} км` : `${Math.round(meters)} м`;
 }
@@ -120,10 +172,10 @@ function formatDuration(startedAt: number, endedAt: number): string {
   return minutes >= 60 ? `${Math.floor(minutes / 60)} ч ${minutes % 60} мин` : `${minutes} мин`;
 }
 
-function speedColor(speedKmh: number, colors: SpeedColorSet): string {
-  if (speedKmh >= 30) return colors[3];
-  if (speedKmh >= 20) return colors[2];
-  if (speedKmh >= 10) return colors[1];
+function speedColor(speedKmh: number, colors: SpeedColorSet, thresholds: SpeedThresholdSet): string {
+  if (speedKmh >= thresholds[2]) return colors[3];
+  if (speedKmh >= thresholds[1]) return colors[2];
+  if (speedKmh >= thresholds[0]) return colors[1];
   return colors[0];
 }
 
@@ -132,7 +184,8 @@ export const RouteRecorder: React.FC<{
   onIssue: (message: string | null) => void;
   hudCompact?: boolean;
   speedKmh?: number;
-}> = ({ apiKey, onIssue, hudCompact = false, speedKmh }) => {
+  powerKw?: number;
+}> = ({ apiKey, onIssue, hudCompact = false, speedKmh, powerKw }) => {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<InstanceType<YandexMapApi['Map']> | null>(null);
   const lineRefs = useRef<InstanceType<YandexMapApi['Polyline']>[]>([]);
@@ -141,12 +194,16 @@ export const RouteRecorder: React.FC<{
   const currentPositionRef = useRef<{ lat: number; lon: number } | null>(null);
   const currentSpeedRef = useRef(speedKmh);
   currentSpeedRef.current = speedKmh;
+  const currentPowerRef = useRef(powerKw);
+  currentPowerRef.current = powerKw;
   const watchIdRef = useRef<number | null>(null);
   const ignoreNextFixRef = useRef(false);
   const pointsRef = useRef<RoutePoint[]>([]);
   const [points, setPoints] = useState<RoutePoint[]>(loadSavedRoute);
   const [trips, setTrips] = useState<RecordedTrip[]>(loadSavedTrips);
   const [speedColors, setSpeedColors] = useState<SpeedColorSet>(loadSavedSpeedColors);
+  const [speedThresholds, setSpeedThresholds] = useState<SpeedThresholdSet>(loadSavedSpeedThresholds);
+  const [thresholdDrafts, setThresholdDrafts] = useState<[string, string, string]>(() => loadSavedSpeedThresholds().map(String) as [string, string, string]);
   pointsRef.current = points;
   const [recording, setRecording] = useState(false);
   const [mapStatus, setMapStatus] = useState('Загрузка карты…');
@@ -156,14 +213,17 @@ export const RouteRecorder: React.FC<{
 
   useEffect(() => { onIssue(gpsIssue ?? mapIssue); }, [gpsIssue, mapIssue, onIssue]);
 
-  const distance = useMemo(
-    () => points.slice(1).reduce((sum, point, index) => sum + distanceMeters(points[index], point), 0),
-    [points]
-  );
-  const maxRecordedSpeed = useMemo(
-    () => points.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0),
-    [points]
-  );
+  const routeAnalytics = useMemo(() => calculateTripAnalytics(points), [points]);
+  const { distanceMeters: distance, maxSpeedKmh: maxRecordedSpeed } = routeAnalytics;
+  const parsedThresholds = thresholdDrafts.map((value) => Number(value)) as SpeedThresholdSet;
+  const thresholdsValid = parsedThresholds.every((value) => Number.isInteger(value) && value >= 1 && value <= 100)
+    && parsedThresholds[0] < parsedThresholds[1] && parsedThresholds[1] < parsedThresholds[2];
+  const speedRanges = [
+    `0–${speedThresholds[0]}`,
+    `${speedThresholds[0]}–${speedThresholds[1]}`,
+    `${speedThresholds[1]}–${speedThresholds[2]}`,
+    `${speedThresholds[2]}+`,
+  ];
 
   const archiveTrip = (routePoints: RoutePoint[]) => {
     const trip = createRecordedTrip(routePoints);
@@ -288,7 +348,7 @@ export const RouteRecorder: React.FC<{
       const previous = points[index - 1];
       const current = points[index];
       const segmentSpeed = ((previous.speedKmh ?? 0) + (current.speedKmh ?? 0)) / 2;
-      const color = speedColor(segmentSpeed, speedColors);
+      const color = speedColor(segmentSpeed, speedColors, speedThresholds);
       const activeRun = runs[runs.length - 1];
       if (activeRun?.color === color) {
         activeRun.coords.push([current.lat, current.lon]);
@@ -315,7 +375,7 @@ export const RouteRecorder: React.FC<{
     } else {
       markerRef.current.geometry.setCoordinates(latest);
     }
-  }, [points, mapStatus, speedColors]);
+  }, [points, mapStatus, speedColors, speedThresholds]);
 
   useEffect(() => {
     const persist = () => {
@@ -339,6 +399,10 @@ export const RouteRecorder: React.FC<{
   useEffect(() => {
     try { localStorage.setItem(SPEED_COLORS_STORAGE_KEY, JSON.stringify(speedColors)); } catch { /* keep current colors in this session */ }
   }, [speedColors]);
+
+  useEffect(() => {
+    try { localStorage.setItem(SPEED_THRESHOLDS_STORAGE_KEY, JSON.stringify(speedThresholds)); } catch { /* keep current limits in this session */ }
+  }, [speedThresholds]);
 
   useEffect(() => () => {
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
@@ -391,6 +455,7 @@ export const RouteRecorder: React.FC<{
           at,
           accuracy: position.coords.accuracy,
           speedKmh: Number.isFinite(vescSpeed) ? Math.abs(vescSpeed ?? 0) : Math.max(0, gpsSpeed ?? 0),
+          powerKw: Number.isFinite(currentPowerRef.current) ? currentPowerRef.current : undefined,
         };
         setGpsAccuracy(point.accuracy);
         if (point.accuracy > 60) {
@@ -496,6 +561,17 @@ export const RouteRecorder: React.FC<{
     setTrips([]);
   };
 
+  const applySpeedThresholds = () => {
+    if (!thresholdsValid) return;
+    setSpeedThresholds(parsedThresholds);
+  };
+
+  const resetSpeedSettings = () => {
+    setSpeedColors([...DEFAULT_SPEED_COLORS]);
+    setSpeedThresholds([...DEFAULT_SPEED_THRESHOLDS]);
+    setThresholdDrafts(DEFAULT_SPEED_THRESHOLDS.map(String) as [string, string, string]);
+  };
+
   return (
     <section className={`overflow-hidden border border-[var(--line)] bg-[var(--bg-surface)] ${hudCompact ? 'flex h-full min-h-0 flex-col' : ''}`}>
       <div className={`flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] ${hudCompact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
@@ -527,7 +603,7 @@ export const RouteRecorder: React.FC<{
       <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Настройка цветов скорости на маршруте">
         <span className="shrink-0 font-bold text-[var(--fg-muted)]">КМ/Ч</span>
         <div className="flex min-w-0 items-center gap-1">
-          {(['0–10', '10–20', '20–30', '30+'] as const).map((range, index) => (
+          {speedRanges.map((range, index) => (
             <label key={range} title={`Изменить цвет ${range} км/ч`} className="relative inline-flex min-w-0 cursor-pointer items-center gap-0.5">
               <span className="block h-1.5 w-2.5 shrink-0 rounded-[1px]" style={{ backgroundColor: speedColors[index] }} />
               <span>{range}</span>
@@ -549,6 +625,50 @@ export const RouteRecorder: React.FC<{
           className="route-control shrink-0 border border-[var(--line-strong)] px-1 py-0.5 text-[8px] font-bold"
         >↺</button>
       </div>
+      <details className="border-b border-[var(--line)]">
+        <summary className={`cursor-pointer select-none font-bold tracking-wider text-[var(--fg-muted)] ${hudCompact ? 'px-2 py-1 text-[7px]' : 'px-3 py-2 text-[9px]'}`}>
+          ДИАПАЗОНЫ СКОРОСТИ • {speedThresholds.join(' / ')} км/ч
+        </summary>
+        <div className={`space-y-2 px-2 pb-2 ${hudCompact ? 'text-[7px]' : 'text-[10px]'}`}>
+          <div className="grid grid-cols-3 gap-2">
+            {thresholdDrafts.map((value, index) => (
+              <label key={index} className="flex flex-col gap-1 text-[var(--fg-muted)]">
+                <span>Граница {index + 1}</span>
+                <span className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    step={1}
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(event) => setThresholdDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item) as [string, string, string])}
+                    className="w-full border border-[var(--line-strong)] bg-[var(--bg)] px-1 py-1 text-[var(--fg)]"
+                    aria-label={`Граница скорости ${index + 1} в км/ч`}
+                  />
+                  <span>км/ч</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[var(--fg-muted)]">Значения должны идти по возрастанию, от 1 до 100.</span>
+            <div className="flex gap-1">
+              <button type="button" onClick={applySpeedThresholds} disabled={!thresholdsValid} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase disabled:opacity-40">ПРИМЕНИТЬ</button>
+              <button type="button" onClick={resetSpeedSettings} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase">СБРОС</button>
+            </div>
+          </div>
+        </div>
+      </details>
+      <div className={`grid grid-cols-4 border-b border-[var(--line)] ${hudCompact ? 'gap-0.5 px-1 py-1 text-[6px]' : 'gap-2 px-3 py-2 text-[9px]'}`} aria-label="Аналитика текущей поездки">
+        <div><div className="text-[var(--fg-muted)]">ДИСТ.</div><div className="font-bold">{formatDistance(routeAnalytics.distanceMeters)}</div></div>
+        <div><div className="text-[var(--fg-muted)]">СРЕД.</div><div className="font-bold">{routeAnalytics.averageSpeedKmh.toFixed(1)} км/ч</div></div>
+        <div><div className="text-[var(--fg-muted)]">МАКС.</div><div className="font-bold">{Math.round(routeAnalytics.maxSpeedKmh)} км/ч</div></div>
+        <div title={routeAnalytics.energyWh === null ? 'Нет данных о мощности VESC' : `Энергия за поездку: ${Math.round(routeAnalytics.energyWh)} Вт·ч`}>
+          <div className="text-[var(--fg-muted)]">РАСХОД</div>
+          <div className="font-bold">{routeAnalytics.consumptionWhPerKm === null ? '—' : `${Math.round(routeAnalytics.consumptionWhPerKm)} Вт·ч/км`}</div>
+        </div>
+      </div>
       {!apiKey ? (
         <div className={`flex items-center justify-center px-2 text-center text-[8px] text-[var(--fg-muted)] ${hudCompact ? 'min-h-0 flex-1' : 'h-32 px-4 text-xs'}`}>
           Карта недоступна без ключа API; GPS-запись доступна, но точки не будут показаны на карте.
@@ -566,21 +686,27 @@ export const RouteRecorder: React.FC<{
         <div className={`space-y-1 overflow-y-auto px-2 pb-2 ${hudCompact ? 'max-h-28' : 'max-h-72'}`}>
           {trips.length === 0 ? (
             <div className="py-2 text-[9px] text-[var(--fg-muted)]">Остановите запись, чтобы сохранить поездку в истории.</div>
-          ) : trips.map((trip) => (
-            <article key={trip.id} className="flex flex-wrap items-center justify-between gap-1 border border-[var(--line)] px-2 py-1.5">
-              <div className="min-w-0 text-[8px] leading-relaxed sm:text-[10px]">
-                <div className="font-bold">{new Date(trip.startedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
-                <div className="text-[var(--fg-muted)]">
-                  {formatDistance(trip.distanceMeters)} • {formatDuration(trip.startedAt, trip.endedAt)} • макс. {Math.round(trip.maxSpeedKmh)} км/ч
+          ) : trips.map((trip) => {
+            const analytics = calculateTripAnalytics(trip.points);
+            const averageSpeed = trip.averageSpeedKmh ?? analytics.averageSpeedKmh;
+            const consumption = trip.consumptionWhPerKm ?? analytics.consumptionWhPerKm;
+            return (
+              <article key={trip.id} className="flex flex-wrap items-center justify-between gap-1 border border-[var(--line)] px-2 py-1.5">
+                <div className="min-w-0 text-[8px] leading-relaxed sm:text-[10px]">
+                  <div className="font-bold">{new Date(trip.startedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="text-[var(--fg-muted)]">
+                    {formatDistance(trip.distanceMeters)} • {formatDuration(trip.startedAt, trip.endedAt)} • ср. {averageSpeed.toFixed(1)} • макс. {Math.round(trip.maxSpeedKmh)} км/ч
+                    {consumption !== null ? ` • ${Math.round(consumption)} Вт·ч/км` : ''}
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-1">
-                <button type="button" onClick={() => showTrip(trip)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">ПОКАЗАТЬ</button>
-                <button type="button" onClick={() => exportPointsGpx(trip.points, trip.startedAt)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">GPX</button>
-                <button type="button" onClick={() => deleteTrip(trip.id)} aria-label="Удалить поездку" className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">УДАЛИТЬ</button>
-              </div>
-            </article>
-          ))}
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => showTrip(trip)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">ПОКАЗАТЬ</button>
+                  <button type="button" onClick={() => exportPointsGpx(trip.points, trip.startedAt)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">GPX</button>
+                  <button type="button" onClick={() => deleteTrip(trip.id)} aria-label="Удалить поездку" className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">УДАЛИТЬ</button>
+                </div>
+              </article>
+            );
+          })}
           {trips.length > 0 && (
             <button type="button" onClick={clearTripHistory} className="route-control border border-[var(--line-strong)] px-2 py-1 text-[8px] font-bold uppercase">
               ОЧИСТИТЬ ИСТОРИЮ

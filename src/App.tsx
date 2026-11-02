@@ -1373,6 +1373,7 @@ export const App: React.FC = () => {
       <HudView
         speedKmh={speedSigned}
         recordedSpeedKmh={topology === 'sim' || link1Name ? Math.abs(speedSigned) : undefined}
+        recordedPowerKw={topology === 'sim' || link1Name ? totalPowerWatts / 1000 : undefined}
         accelerationTimes={dragStats.bestTimes}
         frontLevel={frontIndicator.level}
         rearLevel={rearIndicator.level}
@@ -1580,6 +1581,7 @@ export const App: React.FC = () => {
               apiKey={YANDEX_MAPS_API_KEY}
               onIssue={reportRouteIssue}
               speedKmh={topology === 'sim' || link1Name ? Math.abs(speedSigned) : undefined}
+              powerKw={topology === 'sim' || link1Name ? totalPowerWatts / 1000 : undefined}
             />
           </>
         )}
