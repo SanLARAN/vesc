@@ -44,6 +44,7 @@ import { ComputedComputerMetrics, DragRunStats, WidgetGrid } from './components/
 import { ControlCommandInput, ControlPad, PadLayoutMode } from './components/ControlPad';
 import { ConnectionTopology, SettingsView } from './components/SettingsView';
 import { ChecklistView } from './components/ChecklistView';
+import { RouteRecorder } from './components/RouteRecorder';
 
 type MainScreenTab = 'dash' | 'bms_guide' | 'remote' | 'settings';
 
@@ -87,6 +88,9 @@ export const App: React.FC = () => {
   const [link1Name, setLink1Name] = useState<string | null>(null);
   const [link2Name, setLink2Name] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [routeIssue, setRouteIssue] = useState<string | null>(null);
+  const [wakeLockState, setWakeLockState] = useState<'checking' | 'active' | 'suspended' | 'unsupported' | 'blocked'>('checking');
+  const wakeLockRef = useRef<{ released: boolean; release(): Promise<void>; addEventListener(type: 'release', listener: () => void): void } | null>(null);
   const [logs, setLogs] = useState<string[]>([
     'Конфигурация Dualtron Achilleus (Части 16–23) загружена.',
     'Master ID 0 = Передний МК (Hall + ADC + BLE) • Slave ID 1 = Задний МК (Sensorless CAN 500K).',
@@ -168,34 +172,74 @@ export const App: React.FC = () => {
   }, [config.theme]);
 
   useEffect(() => {
-    if (!config.keepScreenAwake) return;
-    let sentinel: { release(): Promise<void> } | null = null;
-    const nav = navigator as unknown as {
-      wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void> }> };
+    let disposed = false;
+    const nav = navigator as Navigator & {
+      wakeLock?: {
+        request(type: 'screen'): Promise<{
+          released: boolean;
+          release(): Promise<void>;
+          addEventListener(type: 'release', listener: () => void): void;
+        }>;
+      };
     };
+
     const acquire = async () => {
+      if (disposed) return;
+      if (!nav.wakeLock) {
+        setWakeLockState('unsupported');
+        return;
+      }
+      if (document.visibilityState !== 'visible') {
+        setWakeLockState('suspended');
+        return;
+      }
+      if (wakeLockRef.current && !wakeLockRef.current.released) {
+        setWakeLockState('active');
+        return;
+      }
       try {
-        if (nav.wakeLock && document.visibilityState === 'visible') {
-          sentinel = await nav.wakeLock.request('screen');
+        const sentinel = await nav.wakeLock.request('screen');
+        if (disposed) {
+          await sentinel.release().catch(() => {});
+          return;
         }
+        wakeLockRef.current = sentinel;
+        setWakeLockState('active');
+        sentinel.addEventListener('release', () => {
+          if (wakeLockRef.current === sentinel) wakeLockRef.current = null;
+          if (!disposed) setWakeLockState(document.visibilityState === 'visible' ? 'blocked' : 'suspended');
+        });
       } catch {
-        // Ignore inside sandboxed preview
+        if (!disposed) setWakeLockState('blocked');
       }
     };
-    void acquire();
-    const onVis = () => {
+
+    const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') void acquire();
+      else setWakeLockState('suspended');
     };
-    document.addEventListener('visibilitychange', onVis);
+    const onUserInteraction = () => void acquire();
+
+    void acquire();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    document.addEventListener('pointerdown', onUserInteraction, { passive: true });
     return () => {
-      document.removeEventListener('visibilitychange', onVis);
+      disposed = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      document.removeEventListener('pointerdown', onUserInteraction);
+      const sentinel = wakeLockRef.current;
+      wakeLockRef.current = null;
       void sentinel?.release().catch(() => {});
     };
-  }, [config.keepScreenAwake]);
+  }, []);
 
   const appendLog = useCallback((line: string) => {
     const stamp = new Date().toLocaleTimeString('ru-RU', { hour12: false });
     setLogs((prev) => [`[${stamp}] ${line}`, ...prev.slice(0, 79)]);
+  }, []);
+
+  const reportRouteIssue = useCallback((message: string | null) => {
+    setRouteIssue(message);
   }, []);
 
   const activeProfile: RideProfile = useMemo(
@@ -1067,6 +1111,51 @@ export const App: React.FC = () => {
     .filter(Boolean)
     .join(' • ');
 
+  const systemAlerts: { level: 'warning' | 'error'; text: string }[] = [];
+  if (errorBanner) systemAlerts.push({ level: 'error', text: errorBanner });
+  if (routeIssue) systemAlerts.push({ level: 'warning', text: routeIssue });
+  if (wakeLockState === 'unsupported') {
+    systemAlerts.push({ level: 'warning', text: 'Браузер не поддерживает блокировку сна экрана.' });
+  } else if (wakeLockState === 'blocked') {
+    systemAlerts.push({ level: 'warning', text: 'Не удалось удержать экран включённым. Оставьте страницу открытой и коснитесь экрана.' });
+  }
+  if (anyFault) systemAlerts.push({ level: 'error', text: faultSummary });
+  if (packVoltage > 0 && packVoltage <= config.cutoffEndV) {
+    systemAlerts.push({ level: 'error', text: `Критически низкое напряжение АКБ: ${packVoltage.toFixed(1)} В.` });
+  } else if (packVoltage > 0 && packVoltage <= config.cutoffStartV) {
+    systemAlerts.push({ level: 'warning', text: `Низкое напряжение АКБ: ${packVoltage.toFixed(1)} В (порог ${config.cutoffStartV} В).` });
+  }
+  const maxFetTemp = Math.max(frontMasterTelemetry.tempFet, rearSlaveTelemetry.tempFet);
+  const maxMotorTemp = Math.max(frontMasterTelemetry.tempMotor, rearSlaveTelemetry.tempMotor);
+  if (maxFetTemp >= config.fetWarnTempC + 20) {
+    systemAlerts.push({ level: 'error', text: `Перегрев MOSFET: ${maxFetTemp.toFixed(0)}°C.` });
+  } else if (maxFetTemp >= config.fetWarnTempC) {
+    systemAlerts.push({ level: 'warning', text: `Высокая температура MOSFET: ${maxFetTemp.toFixed(0)}°C.` });
+  }
+  if (maxMotorTemp >= config.motorWarnTempC) {
+    systemAlerts.push({ level: maxMotorTemp >= config.motorWarnTempC + 15 ? 'error' : 'warning', text: `Высокая температура мотора: ${maxMotorTemp.toFixed(0)}°C.` });
+  }
+  if (topology !== 'sim' && link1Name && !rearOnline) {
+    systemAlerts.push({ level: 'warning', text: `Нет телеметрии заднего VESC (CAN ID ${config.canSlaveId}).` });
+  }
+  if (topology !== 'sim' && link1Name && frontMasterTelemetry.updatedAt > 0 && Date.now() - frontMasterTelemetry.updatedAt > 3000) {
+    systemAlerts.push({ level: 'warning', text: 'Телеметрия переднего VESC не обновлялась более 3 секунд.' });
+  }
+  if (totalBattCurrent >= 100) {
+    systemAlerts.push({ level: 'error', text: `Ток батареи превысил 100 А: ${totalBattCurrent.toFixed(1)} А.` });
+  } else if (totalBattCurrent > 94) {
+    systemAlerts.push({ level: 'warning', text: `Ток батареи выше рабочего пика 94 А: ${totalBattCurrent.toFixed(1)} А.` });
+  }
+  if (totalBattCurrent < -15) {
+    systemAlerts.push({ level: 'error', text: `Рекуперация выше заданного предела −15 А: ${totalBattCurrent.toFixed(1)} А.` });
+  }
+  if (fwCurrentAmps > 10.5) {
+    systemAlerts.push({ level: 'warning', text: `Field Weakening выше лимита 10 А: ${fwCurrentAmps.toFixed(1)} А.` });
+  }
+  if (packVoltage > 67.2) {
+    systemAlerts.push({ level: 'warning', text: `Напряжение выше полного заряда 16S (67.2 В): ${packVoltage.toFixed(1)} В.` });
+  }
+
   const handleSendCli = async (cmd: string) => {
     appendLog(`> ${cmd}`);
     if (topology === 'sim') {
@@ -1128,11 +1217,6 @@ export const App: React.FC = () => {
             ? 'iPhone: откройте HTTPS-страницу в Bluefy. Safari и Chrome на iOS не поддерживают Web Bluetooth.'
             : 'Bluetooth LE: включите контроллер и выберите VESC BLE в системном окне браузера.'}
         </div>
-        {errorBanner && (
-          <div className="border-t border-[var(--line)] bg-[var(--inv-bg)] px-4 py-2 text-xs font-medium text-[var(--inv-fg)]">
-            {errorBanner}
-          </div>
-        )}
       </header>
 
       <main
@@ -1146,6 +1230,21 @@ export const App: React.FC = () => {
             {topology === 'sim' ? 'СИМУЛЯЦИЯ' : link1Name ? 'LIVE • VESC' : 'НЕТ СВЯЗИ'}
           </span>
         </div>
+
+        <div className="flex items-center justify-between border-x border-b border-[var(--line)] px-3 py-2 text-[10px] uppercase tracking-wider text-[var(--fg-muted)]">
+          <span>ЭКРАН: {wakeLockState === 'active' ? 'НЕ ГАСНЕТ' : wakeLockState === 'suspended' ? 'ОЖИДАНИЕ' : wakeLockState === 'checking' ? 'ПОДКЛЮЧЕНИЕ…' : 'ВОЗМОЖНО ВЫКЛЮЧЕНИЕ'}</span>
+          <span>VESC {anyFault ? 'ОШИБКА' : (link1Name || topology === 'sim') ? 'МОНИТОРИНГ' : 'НЕ ПОДКЛЮЧЁН'}</span>
+        </div>
+
+        {systemAlerts.length > 0 && (
+          <section aria-live="assertive" aria-label="Предупреждения и ошибки" className="space-y-1.5">
+            {systemAlerts.map((alert, index) => (
+              <div key={`${alert.level}-${index}`} role={alert.level === 'error' ? 'alert' : 'status'} className={`border px-3 py-2 text-xs font-semibold ${alert.level === 'error' ? 'border-[var(--fg)] bg-[var(--inv-bg)] text-[var(--inv-fg)]' : 'border-[var(--line-strong)] bg-[var(--bg-surface)] text-[var(--fg)]'}`}>
+                {alert.level === 'error' ? 'ОШИБКА • ' : 'ВНИМАНИЕ • '}{alert.text}
+              </div>
+            ))}
+          </section>
+        )}
 
         {screenTab === 'dash' && (
           <>
@@ -1226,6 +1325,11 @@ export const App: React.FC = () => {
                   best0to50Sec: null,
                 })
               }
+            />
+
+            <RouteRecorder
+              apiKey={import.meta.env.VITE_YANDEX_MAPS_API_KEY ?? ''}
+              onIssue={reportRouteIssue}
             />
           </>
         )}
