@@ -8,6 +8,15 @@ export interface RoutePoint {
   speedKmh?: number;
 }
 
+interface RecordedTrip {
+  id: string;
+  points: RoutePoint[];
+  distanceMeters: number;
+  maxSpeedKmh: number;
+  startedAt: number;
+  endedAt: number;
+}
+
 interface YandexMapApi {
   ready(callback: () => void): void;
   route?: (points: number[][], options?: object) => Promise<unknown>;
@@ -33,7 +42,40 @@ declare global {
 }
 
 const ROUTE_STORAGE_KEY = 'achilleus-yandex-route-v1';
+const TRIPS_STORAGE_KEY = 'achilleus-trip-history-v1';
+const MAX_SAVED_TRIPS = 6;
 const SCRIPT_ID = 'yandex-maps-api-v2';
+
+function loadSavedTrips(): RecordedTrip[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TRIPS_STORAGE_KEY) ?? '[]') as RecordedTrip[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((trip) => trip && typeof trip.id === 'string' && Array.isArray(trip.points))
+      .slice(0, MAX_SAVED_TRIPS);
+  } catch {
+    return [];
+  }
+}
+
+function tripIdFor(points: RoutePoint[]): string {
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${first?.at ?? 0}-${last?.at ?? 0}-${points.length}`;
+}
+
+function createRecordedTrip(routePoints: RoutePoint[]): RecordedTrip | null {
+  if (routePoints.length < 2) return null;
+  const savedPoints = routePoints.slice(-5000);
+  return {
+    id: tripIdFor(savedPoints),
+    points: savedPoints,
+    distanceMeters: savedPoints.slice(1).reduce((sum, point, index) => sum + distanceMeters(savedPoints[index], point), 0),
+    maxSpeedKmh: savedPoints.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0),
+    startedAt: savedPoints[0].at,
+    endedAt: savedPoints[savedPoints.length - 1].at,
+  };
+}
 
 function loadSavedRoute(): RoutePoint[] {
   try {
@@ -56,6 +98,11 @@ function distanceMeters(a: RoutePoint, b: RoutePoint): number {
 
 function formatDistance(meters: number): string {
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} км` : `${Math.round(meters)} м`;
+}
+
+function formatDuration(startedAt: number, endedAt: number): string {
+  const minutes = Math.max(0, Math.round((endedAt - startedAt) / 60000));
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} ч ${minutes % 60} мин` : `${minutes} мин`;
 }
 
 function speedColor(speedKmh: number): string {
@@ -83,6 +130,7 @@ export const RouteRecorder: React.FC<{
   const ignoreNextFixRef = useRef(false);
   const pointsRef = useRef<RoutePoint[]>([]);
   const [points, setPoints] = useState<RoutePoint[]>(loadSavedRoute);
+  const [trips, setTrips] = useState<RecordedTrip[]>(loadSavedTrips);
   pointsRef.current = points;
   const [recording, setRecording] = useState(false);
   const [mapStatus, setMapStatus] = useState('Загрузка карты…');
@@ -100,6 +148,14 @@ export const RouteRecorder: React.FC<{
     () => points.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0),
     [points]
   );
+
+  const archiveTrip = (routePoints: RoutePoint[]) => {
+    const trip = createRecordedTrip(routePoints);
+    if (!trip) return;
+    setTrips((previous) => previous.some((saved) => saved.id === trip.id)
+      ? previous
+      : [trip, ...previous].slice(0, MAX_SAVED_TRIPS));
+  };
 
   const buildNavigationRoute = (destination: number[]) => {
     const current = currentPositionRef.current;
@@ -256,8 +312,26 @@ export const RouteRecorder: React.FC<{
     if (points.length > 0) persist();
   }, [points]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify(trips));
+    } catch {
+      setGpsIssue('Не удалось сохранить историю поездок: память браузера заполнена.');
+    }
+  }, [trips]);
+
   useEffect(() => () => {
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
+    const unfinishedTrip = createRecordedTrip(pointsRef.current);
+    if (!unfinishedTrip) return;
+    try {
+      const savedTrips = loadSavedTrips();
+      if (!savedTrips.some((trip) => trip.id === unfinishedTrip.id)) {
+        localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify([unfinishedTrip, ...savedTrips].slice(0, MAX_SAVED_TRIPS)));
+      }
+    } catch {
+      // Keep the in-progress route in ROUTE_STORAGE_KEY if history cannot be saved.
+    }
   }, []);
 
   const startRecording = () => {
@@ -271,7 +345,9 @@ export const RouteRecorder: React.FC<{
     }
     setGpsIssue(null);
     ignoreNextFixRef.current = true;
+    archiveTrip(pointsRef.current);
     try { localStorage.removeItem(ROUTE_STORAGE_KEY); } catch { /* ignore unavailable storage */ }
+    pointsRef.current = [];
     setPoints([]);
     setGpsAccuracy(null);
     setRecording(true);
@@ -315,6 +391,7 @@ export const RouteRecorder: React.FC<{
         setPoints((previous) => [...previous, point].slice(-5000));
       },
       (error) => {
+        archiveTrip(pointsRef.current);
         setRecording(false);
         if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -330,24 +407,73 @@ export const RouteRecorder: React.FC<{
   };
 
   const stopRecording = () => {
+    archiveTrip(pointsRef.current);
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
     watchIdRef.current = null;
     setRecording(false);
     ignoreNextFixRef.current = false;
   };
 
-  const exportGpx = () => {
-    if (points.length === 0) return;
-    const track = points.map((point) =>
+  const exportPointsGpx = (routePoints: RoutePoint[], date = Date.now()) => {
+    if (routePoints.length === 0) return;
+    const track = routePoints.map((point) =>
       `<trkpt lat="${point.lat}" lon="${point.lon}"><time>${new Date(point.at).toISOString()}</time><extensions><speed>${(point.speedKmh ?? 0) / 3.6}</speed></extensions></trkpt>`
     ).join('');
     const gpx = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Achilleus Onboard Computer" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Dualtron Achilleus</name><trkseg>${track}</trkseg></trk></gpx>`;
     const url = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }));
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `achilleus-route-${new Date().toISOString().slice(0, 10)}.gpx`;
+    anchor.download = `achilleus-route-${new Date(date).toISOString().slice(0, 10)}.gpx`;
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportGpx = () => exportPointsGpx(points);
+
+  const clearCurrentRoute = () => {
+    if (!window.confirm('Удалить текущую запись маршрута? Сохранённые поездки в истории останутся.')) return;
+    if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+    ignoreNextFixRef.current = false;
+    setRecording(false);
+    pointsRef.current = [];
+    setPoints([]);
+    setGpsAccuracy(null);
+    if (navigationRouteRef.current) mapRef.current?.geoObjects.remove(navigationRouteRef.current);
+    navigationRouteRef.current = null;
+    try { localStorage.removeItem(ROUTE_STORAGE_KEY); } catch { /* ignore unavailable storage */ }
+  };
+
+  const showTrip = (trip: RecordedTrip) => {
+    if (recording) stopRecording();
+    pointsRef.current = trip.points;
+    setPoints(trip.points);
+    try { localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(trip.points)); } catch { /* ignore unavailable storage */ }
+    if (trip.points.length < 2) {
+      const point = trip.points[0];
+      if (point) mapRef.current?.setCenter([point.lat, point.lon], 16, { duration: 250 });
+      return;
+    }
+    const latitudes = trip.points.map((point) => point.lat);
+    const longitudes = trip.points.map((point) => point.lon);
+    mapRef.current?.setBounds([
+      [Math.min(...latitudes), Math.min(...longitudes)],
+      [Math.max(...latitudes), Math.max(...longitudes)],
+    ], { checkZoomRange: true, zoomMargin: 24 });
+  };
+
+  const deleteTrip = (tripId: string) => {
+    setTrips((previous) => previous.filter((trip) => trip.id !== tripId));
+    if (pointsRef.current.length > 0 && tripIdFor(pointsRef.current) === tripId) {
+      pointsRef.current = [];
+      setPoints([]);
+      try { localStorage.removeItem(ROUTE_STORAGE_KEY); } catch { /* ignore unavailable storage */ }
+    }
+  };
+
+  const clearTripHistory = () => {
+    if (!window.confirm('Удалить всю историю поездок? Текущая запись маршрута останется.')) return;
+    setTrips([]);
   };
 
   return (
@@ -373,6 +499,9 @@ export const RouteRecorder: React.FC<{
           <button type="button" onClick={exportGpx} disabled={points.length === 0} className={`route-control border border-[var(--line-strong)] ${hudCompact ? 'px-1.5 py-1 text-[7px]' : 'px-3 py-2 text-[10px]'} font-bold uppercase disabled:opacity-40`}>
             GPX
           </button>
+          <button type="button" onClick={clearCurrentRoute} disabled={points.length === 0 && !recording} aria-label="Очистить текущую запись маршрута" title="Очистить текущую запись маршрута" className={`route-control border border-[var(--line-strong)] ${hudCompact ? 'px-1.5 py-1 text-[7px]' : 'px-3 py-2 text-[10px]'} font-bold uppercase disabled:opacity-40`}>
+            {hudCompact ? '×' : 'ОЧИСТИТЬ'}
+          </button>
         </div>
       </div>
       <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Цвет маршрута по скорости">
@@ -390,8 +519,37 @@ export const RouteRecorder: React.FC<{
         <div ref={mapElementRef} className={`yandex-route-map w-full ${hudCompact ? 'min-h-0 flex-1' : 'h-64 sm:h-80'}`} aria-label="Карта и GPS-маршрут" />
       )}
       <div className={`border-t border-[var(--line)] px-3 py-2 text-[10px] text-[var(--fg-muted)] ${hudCompact ? 'hidden' : ''}`}>
-        Точки маршрута сохраняются только в памяти этого браузера; для отображения карта запрашивает тайлы у Яндекса. Экспорт GPX сохраняет копию на телефон.
+        Текущая запись и история хранятся в этом браузере. При очистке маршрута сохранённые поездки остаются в истории.
       </div>
+      <details className={`border-t border-[var(--line)] ${hudCompact ? 'shrink-0' : ''}`}>
+        <summary className={`cursor-pointer select-none font-bold tracking-wider ${hudCompact ? 'px-2 py-1.5 text-[8px]' : 'px-3 py-2 text-[10px]'}`}>
+          ИСТОРИЯ ПОЕЗДОК • {trips.length}
+        </summary>
+        <div className={`space-y-1 overflow-y-auto px-2 pb-2 ${hudCompact ? 'max-h-28' : 'max-h-72'}`}>
+          {trips.length === 0 ? (
+            <div className="py-2 text-[9px] text-[var(--fg-muted)]">Остановите запись, чтобы сохранить поездку в истории.</div>
+          ) : trips.map((trip) => (
+            <article key={trip.id} className="flex flex-wrap items-center justify-between gap-1 border border-[var(--line)] px-2 py-1.5">
+              <div className="min-w-0 text-[8px] leading-relaxed sm:text-[10px]">
+                <div className="font-bold">{new Date(trip.startedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+                <div className="text-[var(--fg-muted)]">
+                  {formatDistance(trip.distanceMeters)} • {formatDuration(trip.startedAt, trip.endedAt)} • макс. {Math.round(trip.maxSpeedKmh)} км/ч
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button type="button" onClick={() => showTrip(trip)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">ПОКАЗАТЬ</button>
+                <button type="button" onClick={() => exportPointsGpx(trip.points, trip.startedAt)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">GPX</button>
+                <button type="button" onClick={() => deleteTrip(trip.id)} aria-label="Удалить поездку" className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">УДАЛИТЬ</button>
+              </div>
+            </article>
+          ))}
+          {trips.length > 0 && (
+            <button type="button" onClick={clearTripHistory} className="route-control border border-[var(--line-strong)] px-2 py-1 text-[8px] font-bold uppercase">
+              ОЧИСТИТЬ ИСТОРИЮ
+            </button>
+          )}
+        </div>
+      </details>
     </section>
   );
 };
