@@ -82,6 +82,7 @@ const HudView: React.FC<HudViewProps> = ({
   const percent = Math.max(0, Math.min(100, batteryPct));
   const errorList = [...alerts].sort((a, b) => Number(b.level === 'error') - Number(a.level === 'error')).slice(0, 2);
   const batteryColor = percent <= 15 ? 'text-red-500' : percent <= 30 ? 'text-amber-400' : 'text-emerald-400';
+  const batteryBarColor = percent <= 15 ? 'bg-red-500' : percent <= 30 ? 'bg-amber-400' : 'bg-emerald-400';
   const [mapOpen, setMapOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -211,7 +212,7 @@ const HudView: React.FC<HudViewProps> = ({
           <div className="border border-white/15 bg-white/[0.025] p-3 sm:p-4">
             <div className="flex items-center justify-between text-[9px] font-bold tracking-[0.16em] text-white/45 sm:text-[10px]"><span>ЗАРЯД</span><span className="tabular-nums">{packVoltage > 0 ? `${packVoltage.toFixed(1)}В` : '—'}</span></div>
             <div className="mt-2 flex items-baseline gap-1"><span className="tabular-nums text-2xl font-light sm:text-3xl">{Math.round(percent)}</span><span className="text-xs font-bold text-white/50">%</span></div>
-            <div className="mt-2 h-1.5 w-full bg-white/10"><div className={`h-full transition-[width,background-color] duration-500 ${batteryColor.replace('text-', 'bg-')}`} style={{ width: `${percent}%` }} /></div>
+            <div className="mt-2 h-1.5 w-full bg-white/10"><div className={`h-full transition-[width,background-color] duration-500 ${batteryBarColor}`} style={{ width: `${percent}%` }} /></div>
           </div>
           <div className="border border-white/15 bg-white/[0.025] p-3 sm:p-4">
             <div className="text-[9px] font-bold tracking-[0.16em] text-white/45 sm:text-[10px]">ОСТАЛОСЬ</div>
