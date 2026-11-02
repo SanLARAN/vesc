@@ -45,6 +45,7 @@ import { ControlCommandInput, ControlPad, PadLayoutMode } from './components/Con
 import { ConnectionTopology, SettingsView } from './components/SettingsView';
 import { ChecklistView } from './components/ChecklistView';
 import { RouteRecorder } from './components/RouteRecorder';
+import { YANDEX_MAPS_API_KEY } from './config';
 
 type MainScreenTab = 'dash' | 'bms_guide' | 'remote' | 'settings';
 
@@ -102,6 +103,30 @@ const emptyBestTimes = (): DragRunStats['bestTimes'] => ({
   100: null,
 });
 
+function estimateSocFromRestVoltage(
+  packVoltage: number,
+  cells: number,
+  chemistry: 'liion' | 'lifepo4',
+  cutoffEndV: number
+): number {
+  if (packVoltage <= 0 || cells <= 0) return 0;
+  const cellVoltage = packVoltage / cells;
+  const curve: [number, number][] = chemistry === 'liion'
+    ? [[2.9, 3], [3.0, 5], [3.2, 10], [3.3, 17], [3.4, 27], [3.5, 40], [3.6, 55], [3.7, 68], [3.8, 80], [3.9, 90], [4.0, 95], [4.1, 98], [4.2, 100]]
+    : [[2.9, 2], [3.0, 5], [3.1, 15], [3.2, 45], [3.25, 65], [3.3, 80], [3.35, 90], [3.4, 95], [3.5, 98], [3.65, 100]];
+  const points = ([[cutoffEndV / cells, 0], ...curve] as [number, number][]).sort((a, b) => a[0] - b[0]);
+  if (cellVoltage <= points[0][0]) return 0;
+  for (let i = 1; i < points.length; i++) {
+    const [upperV, upperPct] = points[i];
+    const [lowerV, lowerPct] = points[i - 1];
+    if (cellVoltage <= upperV) {
+      const ratio = (cellVoltage - lowerV) / Math.max(0.001, upperV - lowerV);
+      return Math.max(0, Math.min(100, Math.round(lowerPct + ratio * (upperPct - lowerPct))));
+    }
+  }
+  return 100;
+}
+
 type ControllerIndicatorLevel = 'ok' | 'warning' | 'error';
 
 function controllerIndicator(
@@ -151,6 +176,16 @@ export const App: React.FC = () => {
   const [link2Name, setLink2Name] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [routeIssue, setRouteIssue] = useState<string | null>(null);
+  const [gpsSpeedIssue, setGpsSpeedIssue] = useState<string | null>(null);
+  const [showGpsSpeed, setShowGpsSpeed] = useState(false);
+  const [gpsSpeedKmh, setGpsSpeedKmh] = useState<number | null>(null);
+  const [gpsSpeedAccuracy, setGpsSpeedAccuracy] = useState<number | null>(null);
+  const [gpsFixAt, setGpsFixAt] = useState(0);
+  const [wheelDiameterCandidate, setWheelDiameterCandidate] = useState<number | null>(null);
+  const gpsWatchIdRef = useRef<number | null>(null);
+  const lastGpsFixRef = useRef<{ lat: number; lon: number; at: number } | null>(null);
+  const wheelCalibrationSamplesRef = useRef<number[]>([]);
+  const lastCalibrationFixRef = useRef(0);
   const [wakeLockState, setWakeLockState] = useState<'checking' | 'active' | 'suspended' | 'unsupported' | 'blocked'>('checking');
   const wakeLockRef = useRef<{ released: boolean; release(): Promise<void>; addEventListener(type: 'release', listener: () => void): void } | null>(null);
   const [logs, setLogs] = useState<string[]>([
@@ -163,7 +198,8 @@ export const App: React.FC = () => {
   const [odometerKm, setOdometerKm] = useState<number>(loadTotalOdometerKm);
   const [rideSeconds, setRideSeconds] = useState<number>(0);
   const [tripStartWh, setTripStartWh] = useState<number>(0);
-  const [highestIdleVoltage, setHighestIdleVoltage] = useState<number>(66.4);
+  const [highestIdleVoltage, setHighestIdleVoltage] = useState<number>(0);
+  const socAnchorRef = useRef<{ netAh: number; percent: number } | null>(null);
   const [dragStats, setDragStats] = useState<DragRunStats>({
     state: 'ready',
     currentSec: 0,
@@ -293,6 +329,81 @@ export const App: React.FC = () => {
       void sentinel?.release().catch(() => {});
     };
   }, []);
+
+  useEffect(() => {
+    if (!showGpsSpeed) {
+      if (gpsWatchIdRef.current !== null) navigator.geolocation?.clearWatch(gpsWatchIdRef.current);
+      gpsWatchIdRef.current = null;
+      lastGpsFixRef.current = null;
+      setGpsSpeedKmh(null);
+      setGpsSpeedAccuracy(null);
+      setGpsSpeedIssue(null);
+      setWheelDiameterCandidate(null);
+      wheelCalibrationSamplesRef.current = [];
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      setGpsSpeedIssue('GPS недоступен в этом браузере.');
+      return;
+    }
+    if (!window.isSecureContext) {
+      setGpsSpeedIssue('Для GPS нужна защищённая HTTPS-страница.');
+      return;
+    }
+
+    setGpsSpeedIssue(null);
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude: lat, longitude: lon, accuracy, speed } = position.coords;
+        const at = position.timestamp || Date.now();
+        setGpsSpeedAccuracy(accuracy);
+        setGpsFixAt(at);
+        if (accuracy > 60) {
+          setGpsSpeedKmh(null);
+          setGpsSpeedIssue(`Слабый GPS-сигнал: точность около ±${Math.round(accuracy)} м.`);
+          return;
+        }
+        setGpsSpeedIssue(null);
+
+        let speedMps = speed;
+        const previous = lastGpsFixRef.current;
+        if ((speedMps === null || !Number.isFinite(speedMps)) && previous) {
+          const rad = (value: number) => value * Math.PI / 180;
+          const dLat = rad(lat - previous.lat);
+          const dLon = rad(lon - previous.lon);
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(previous.lat)) * Math.cos(rad(lat)) * Math.sin(dLon / 2) ** 2;
+          const distance = 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          const elapsed = (at - previous.at) / 1000;
+          speedMps = elapsed > 0.4 ? distance / elapsed : null;
+        }
+        lastGpsFixRef.current = { lat, lon, at };
+        if (speedMps !== null && Number.isFinite(speedMps)) {
+          const nextKmh = Math.max(0, speedMps * 3.6);
+          setGpsSpeedKmh((previousSpeed) => {
+            if (previousSpeed === null || Math.abs(previousSpeed - nextKmh) > 20) return nextKmh;
+            return previousSpeed * 0.65 + nextKmh * 0.35;
+          });
+        }
+      },
+      (error) => {
+        const message = error.code === error.PERMISSION_DENIED
+          ? 'GPS-доступ запрещён. Разрешите геопозицию для сайта в браузере.'
+          : error.code === error.TIMEOUT
+          ? 'GPS не ответил вовремя; проверьте сигнал и разрешение геолокации.'
+          : 'Не удалось получить скорость GPS.';
+        setGpsSpeedIssue(message);
+        setGpsSpeedKmh(null);
+      },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
+    );
+    gpsWatchIdRef.current = watchId;
+
+    return () => {
+      navigator.geolocation?.clearWatch(watchId);
+      if (gpsWatchIdRef.current === watchId) gpsWatchIdRef.current = null;
+    };
+  }, [showGpsSpeed]);
 
   const appendLog = useCallback((line: string) => {
     const stamp = new Date().toLocaleTimeString('ru-RU', { hour12: false });
@@ -993,6 +1104,37 @@ export const App: React.FC = () => {
     }
   }, [speedAbs, topology]);
 
+  useEffect(() => {
+    if (!showGpsSpeed || topology === 'sim' || gpsFixAt === 0 || gpsFixAt === lastCalibrationFixRef.current) return;
+    lastCalibrationFixRef.current = gpsFixAt;
+    if (gpsSpeedAccuracy === null || gpsSpeedAccuracy > 15 || gpsSpeedKmh === null || gpsSpeedKmh < 15 || speedAbs < 15) {
+      return;
+    }
+    const ratio = gpsSpeedKmh / speedAbs;
+    if (ratio < 0.8 || ratio > 1.2) {
+      wheelCalibrationSamplesRef.current = [];
+      setWheelDiameterCandidate(null);
+      return;
+    }
+    const candidate = config.wheelDiameterMm * ratio;
+    wheelCalibrationSamplesRef.current = [...wheelCalibrationSamplesRef.current.slice(-7), candidate];
+    const samples = wheelCalibrationSamplesRef.current;
+    if (samples.length >= 5) {
+      const sorted = [...samples].sort((a, b) => a - b);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      const spread = (sorted[sorted.length - 1] - sorted[0]) / median;
+      setWheelDiameterCandidate(spread <= 0.04 ? Math.round(median) : null);
+    }
+  }, [showGpsSpeed, topology, gpsFixAt, gpsSpeedAccuracy, gpsSpeedKmh, speedAbs, config.wheelDiameterMm]);
+
+  const applyGpsWheelCalibration = useCallback(() => {
+    if (wheelDiameterCandidate === null) return;
+    updateConfig({ wheelDiameterMm: wheelDiameterCandidate });
+    appendLog(`Калибровка спидометра по GPS: диаметр колеса ${wheelDiameterCandidate} мм. Настроено только в приборке; VESC не менялся.`);
+    setWheelDiameterCandidate(null);
+    wheelCalibrationSamplesRef.current = [];
+  }, [appendLog, updateConfig, wheelDiameterCandidate]);
+
   const packVoltage =
     frontMasterTelemetry.vIn > 0 ? frontMasterTelemetry.vIn : rearSlaveTelemetry.vIn;
   const totalBattCurrent =
@@ -1057,28 +1199,40 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Exact Section 23.3 Achilleus battery SOC between cutoffEndV (43V) & full 67.2V
-  const fullPackV = config.batteryCells * (config.batteryChemistry === 'lifepo4' ? 3.65 : 4.2);
-  const restV = Math.max(packVoltage, highestIdleVoltage);
-  const batteryPct =
-    packVoltage < 10
-      ? 0
-      : Math.max(
-          0,
-          Math.min(
-            100,
-            Math.round(
-              ((restV - config.cutoffEndV) / Math.max(1, fullPackV - config.cutoffEndV)) *
-                100
-            )
-          )
-        );
-  const sagDelta = Math.max(0, restV - packVoltage);
+  // Hybrid SOC: nonlinear resting-voltage curve, corrected by the two VESC Ah counters during a ride.
+  const restV = highestIdleVoltage > 0 ? Math.max(packVoltage, highestIdleVoltage) : packVoltage;
   const cellVoltage = config.batteryCells > 0 ? packVoltage / config.batteryCells : 0;
-
   const rawWhTotal = frontMasterTelemetry.wattHours + rearSlaveTelemetry.wattHours;
   const regenWhTotal =
     frontMasterTelemetry.wattHoursCharged + rearSlaveTelemetry.wattHoursCharged;
+  const netAhCounter =
+    frontMasterTelemetry.ampHours + rearSlaveTelemetry.ampHours -
+    frontMasterTelemetry.ampHoursCharged - rearSlaveTelemetry.ampHoursCharged;
+  const voltageSocPct = estimateSocFromRestVoltage(
+    restV,
+    config.batteryCells,
+    config.batteryChemistry,
+    config.cutoffEndV
+  );
+
+  useEffect(() => {
+    if (packVoltage < 20) return;
+    const capacity = Math.max(1, config.batteryCapacityAh);
+    const anchor = socAnchorRef.current;
+    if (!anchor || Math.abs(netAhCounter - anchor.netAh) > capacity * 1.5) {
+      socAnchorRef.current = { netAh: netAhCounter, percent: voltageSocPct };
+    }
+  }, [packVoltage, netAhCounter, voltageSocPct, config.batteryCapacityAh]);
+
+  const socAnchor = socAnchorRef.current;
+  const coulombSocPct = socAnchor
+    ? socAnchor.percent - ((netAhCounter - socAnchor.netAh) / Math.max(1, config.batteryCapacityAh)) * 100
+    : voltageSocPct;
+  const batteryPct = packVoltage < 10
+    ? 0
+    : Math.round(Math.max(0, Math.min(100, coulombSocPct * 0.8 + voltageSocPct * 0.2)));
+  const sagDelta = Math.max(0, restV - packVoltage);
+
   const netWhTrip = Math.max(0, rawWhTotal - regenWhTotal - tripStartWh);
   const dynamicWhPerKm =
     tripDistanceKm > 0.15
@@ -1148,6 +1302,7 @@ export const App: React.FC = () => {
   const systemAlerts: { level: 'warning' | 'error'; text: string }[] = [];
   if (errorBanner) systemAlerts.push({ level: 'error', text: errorBanner });
   if (routeIssue) systemAlerts.push({ level: 'warning', text: routeIssue });
+  if (showGpsSpeed && gpsSpeedIssue) systemAlerts.push({ level: 'warning', text: gpsSpeedIssue });
   if (wakeLockState === 'unsupported') {
     systemAlerts.push({ level: 'warning', text: 'Браузер не поддерживает блокировку сна экрана.' });
   } else if (wakeLockState === 'blocked') {
@@ -1298,6 +1453,12 @@ export const App: React.FC = () => {
               anyFault={anyFault}
               faultSummary={faultSummary}
               accelerationTimes={dragStats.bestTimes}
+              gpsSpeedKmh={gpsSpeedKmh}
+              gpsSpeedAccuracy={gpsSpeedAccuracy}
+              gpsCompareSpeedKmh={topology === 'sim' ? null : speedAbs}
+              gpsWheelDiameterCandidate={wheelDiameterCandidate}
+              onGpsSpeedModeChange={setShowGpsSpeed}
+              onApplyGpsWheelCalibration={applyGpsWheelCalibration}
               frontIndicatorLevel={frontIndicator.level}
               rearIndicatorLevel={rearIndicator.level}
               frontIndicatorDetail={frontIndicator.detail}
@@ -1368,7 +1529,7 @@ export const App: React.FC = () => {
             />
 
             <RouteRecorder
-              apiKey={import.meta.env.VITE_YANDEX_MAPS_API_KEY ?? ''}
+              apiKey={YANDEX_MAPS_API_KEY}
               onIssue={reportRouteIssue}
             />
           </>

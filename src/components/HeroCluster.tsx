@@ -44,6 +44,12 @@ interface HeroClusterProps {
   anyFault: boolean;
   faultSummary: string;
   accelerationTimes: Record<SpeedMilestone, number | null>;
+  gpsSpeedKmh: number | null;
+  gpsSpeedAccuracy: number | null;
+  gpsCompareSpeedKmh: number | null;
+  gpsWheelDiameterCandidate: number | null;
+  onGpsSpeedModeChange: (enabled: boolean) => void;
+  onApplyGpsWheelCalibration: () => void;
   frontIndicatorLevel: IndicatorLevel;
   rearIndicatorLevel: IndicatorLevel;
   frontIndicatorDetail: string;
@@ -78,6 +84,12 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
   anyFault,
   faultSummary,
   accelerationTimes,
+  gpsSpeedKmh,
+  gpsSpeedAccuracy,
+  gpsCompareSpeedKmh,
+  gpsWheelDiameterCandidate,
+  onGpsSpeedModeChange,
+  onApplyGpsWheelCalibration,
   frontIndicatorLevel,
   rearIndicatorLevel,
   frontIndicatorDetail,
@@ -139,14 +151,26 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
       ? 'Только Master ID0'
       : 'Только Slave ID1';
 
-  const [milestonesExpanded, setMilestonesExpanded] = useState(false);
+  const [displayMode, setDisplayMode] = useState<'speed' | 'acceleration' | 'gps'>('speed');
+  const displayModeRef = useRef<'speed' | 'acceleration' | 'gps'>('speed');
+  const milestonesExpanded = displayMode === 'acceleration';
+  const showGpsBadge = displayMode === 'gps';
   const lastPointerUpRef = useRef(0);
-  const toggleMilestones = () => setMilestonesExpanded((value) => !value);
+  const cycleDisplayMode = () => {
+    const next = displayModeRef.current === 'speed'
+      ? 'acceleration'
+      : displayModeRef.current === 'acceleration'
+      ? 'gps'
+      : 'speed';
+    displayModeRef.current = next;
+    setDisplayMode(next);
+    onGpsSpeedModeChange(next === 'gps');
+  };
   const handleSpeedPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const now = performance.now();
     if (now - lastPointerUpRef.current < 360) {
-      toggleMilestones();
+      cycleDisplayMode();
       lastPointerUpRef.current = 0;
     } else {
       lastPointerUpRef.current = now;
@@ -206,18 +230,18 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
       <div className="flex items-center justify-center gap-1 border-b border-[var(--line)] px-1 py-4 sm:gap-3 sm:py-6">
         <ControllerIndicator side="ПЕРЕД" level={frontIndicatorLevel} detail={frontIndicatorDetail} />
         <div
-          className="min-w-0 flex-1 text-center select-none"
+          className="relative min-w-0 flex-1 text-center select-none"
           role="button"
           tabIndex={0}
           aria-expanded={milestonesExpanded}
           aria-controls="acceleration-milestones"
-          aria-label="Спидометр. Дважды коснитесь для замеров разгона"
-          title="Двойное касание — показать или скрыть замеры разгона"
+          aria-label="Спидометр. Двойное касание переключает обычный вид, замеры разгона и скорость GPS"
+          title="Двойное касание: замеры разгона → скорость GPS → обычный спидометр"
           onPointerUp={handleSpeedPointerUp}
           onKeyDown={(event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
-              toggleMilestones();
+              cycleDisplayMode();
             }
           }}
         >
@@ -261,6 +285,27 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
             {mainUnit}
           </span>
         </div>
+        {showGpsBadge && (
+          <div className="pointer-events-none absolute right-0 top-0 flex flex-col items-center">
+            <div className="flex h-12 w-12 flex-col items-center justify-center rounded-full border-[3px] border-black bg-white text-black outline outline-1 outline-white sm:h-14 sm:w-14">
+              <span className="text-[7px] font-black tracking-wider">GPS</span>
+              <span className="tabular-nums text-base font-black leading-none sm:text-lg">
+                {gpsSpeedKmh === null ? '—' : Math.round(gpsSpeedKmh)}
+              </span>
+              <span className="text-[6px] font-bold leading-none">км/ч</span>
+            </div>
+            <span className="mt-0.5 whitespace-nowrap text-[7px] font-bold tabular-nums text-[var(--fg-muted)]">
+              {gpsSpeedKmh === null
+                ? 'ПОИСК GPS'
+                : gpsCompareSpeedKmh === null
+                ? 'GPS • ОНЛАЙН'
+                : `Δ ${gpsSpeedKmh - gpsCompareSpeedKmh >= 0 ? '+' : ''}${(gpsSpeedKmh - gpsCompareSpeedKmh).toFixed(1)}`}
+            </span>
+            {gpsSpeedAccuracy !== null && (
+              <span className="text-[7px] tabular-nums text-[var(--fg-faint)]">±{Math.round(gpsSpeedAccuracy)} м</span>
+            )}
+          </div>
+        )}
 
         <span className="mt-1 block text-[9px] tracking-widest uppercase text-[var(--fg-faint)]">
           ACHILLEUS 16S • ЭТАП {perEscBattAmps}А×2 ({perEscBattAmps * 2}А) • {tractionTitle}
@@ -289,7 +334,19 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
           </div>
         </div>
         {!milestonesExpanded && (
-          <span className="mt-1 block text-[8px] tracking-wider uppercase text-[var(--fg-faint)]">Двойное касание • замеры разгона</span>
+          <span className="mt-1 block text-[8px] tracking-wider uppercase text-[var(--fg-faint)]">
+            {showGpsBadge ? 'GPS • VESC: сравнение скорости' : 'Двойное касание • замеры разгона'}
+          </span>
+        )}
+        {showGpsBadge && gpsWheelDiameterCandidate !== null && (
+          <button
+            type="button"
+            className="calibration-control mt-2 border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-1 text-[9px] font-bold uppercase text-[var(--fg)]"
+            onPointerUp={(event) => event.stopPropagation()}
+            onClick={(event) => { event.stopPropagation(); onApplyGpsWheelCalibration(); }}
+          >
+            ПРИМЕНИТЬ Ø {gpsWheelDiameterCandidate} ММ
+          </button>
         )}
         </div>
         <ControllerIndicator side="ЗАД" level={rearIndicatorLevel} detail={rearIndicatorDetail} />
