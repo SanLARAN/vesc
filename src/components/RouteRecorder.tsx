@@ -6,6 +6,19 @@ export interface RoutePoint {
   at: number;
   accuracy: number;
   speedKmh?: number;
+  powerKw?: number;
+}
+
+interface RecordedTrip {
+  id: string;
+  points: RoutePoint[];
+  distanceMeters: number;
+  maxSpeedKmh: number;
+  startedAt: number;
+  endedAt: number;
+  averageSpeedKmh: number;
+  energyWh: number | null;
+  consumptionWhPerKm: number | null;
 }
 
 interface YandexMapApi {
@@ -33,7 +46,78 @@ declare global {
 }
 
 const ROUTE_STORAGE_KEY = 'achilleus-yandex-route-v1';
+const TRIPS_STORAGE_KEY = 'achilleus-trip-history-v1';
+const SPEED_COLORS_STORAGE_KEY = 'achilleus-route-speed-colors-v1';
+const SPEED_THRESHOLDS_STORAGE_KEY = 'achilleus-route-speed-thresholds-v1';
+const DEFAULT_SPEED_COLORS = ['#22c55e', '#eab308', '#f97316', '#ef4444'] as const;
+const DEFAULT_SPEED_THRESHOLDS = [10, 20, 30] as const;
+type SpeedColorSet = [string, string, string, string];
+type SpeedThresholdSet = [number, number, number];
+interface TripAnalytics {
+  distanceMeters: number;
+  maxSpeedKmh: number;
+  averageSpeedKmh: number;
+  energyWh: number | null;
+  consumptionWhPerKm: number | null;
+}
+const MAX_SAVED_TRIPS = 6;
 const SCRIPT_ID = 'yandex-maps-api-v2';
+
+function loadSavedSpeedColors(): SpeedColorSet {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SPEED_COLORS_STORAGE_KEY) ?? 'null') as unknown;
+    if (Array.isArray(parsed) && parsed.length === 4 && parsed.every((color) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))) {
+      return parsed as SpeedColorSet;
+    }
+  } catch {
+    // Use the default speed palette when local storage is unavailable or invalid.
+  }
+  return [...DEFAULT_SPEED_COLORS];
+}
+
+function loadSavedSpeedThresholds(): SpeedThresholdSet {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SPEED_THRESHOLDS_STORAGE_KEY) ?? 'null') as unknown;
+    if (Array.isArray(parsed) && parsed.length === 3 && parsed.every((value) => Number.isInteger(value) && value >= 1 && value <= 100)
+      && parsed[0] < parsed[1] && parsed[1] < parsed[2]) {
+      return parsed as SpeedThresholdSet;
+    }
+  } catch {
+    // Keep default speed bands when preferences are missing or malformed.
+  }
+  return [...DEFAULT_SPEED_THRESHOLDS];
+}
+
+function loadSavedTrips(): RecordedTrip[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TRIPS_STORAGE_KEY) ?? '[]') as RecordedTrip[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((trip) => trip && typeof trip.id === 'string' && Array.isArray(trip.points))
+      .slice(0, MAX_SAVED_TRIPS);
+  } catch {
+    return [];
+  }
+}
+
+function tripIdFor(points: RoutePoint[]): string {
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${first?.at ?? 0}-${last?.at ?? 0}-${points.length}`;
+}
+
+function createRecordedTrip(routePoints: RoutePoint[]): RecordedTrip | null {
+  if (routePoints.length < 2) return null;
+  const savedPoints = routePoints.slice(-5000);
+  const analytics = calculateTripAnalytics(savedPoints);
+  return {
+    id: tripIdFor(savedPoints),
+    points: savedPoints,
+    ...analytics,
+    startedAt: savedPoints[0].at,
+    endedAt: savedPoints[savedPoints.length - 1].at,
+  };
+}
 
 function loadSavedRoute(): RoutePoint[] {
   try {
@@ -54,15 +138,45 @@ function distanceMeters(a: RoutePoint, b: RoutePoint): number {
   return 6371000 * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
 
+function calculateTripAnalytics(points: RoutePoint[]): TripAnalytics {
+  const distance = points.slice(1).reduce((sum, point, index) => sum + distanceMeters(points[index], point), 0);
+  const elapsedMs = points.length > 1 ? Math.max(0, points[points.length - 1].at - points[0].at) : 0;
+  const maxSpeed = points.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0);
+  let energyWh = 0;
+  let hasPowerSamples = false;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const elapsedSeconds = (current.at - previous.at) / 1000;
+    if (elapsedSeconds <= 0 || elapsedSeconds > 60 || previous.powerKw === undefined || current.powerKw === undefined) continue;
+    energyWh += ((previous.powerKw + current.powerKw) / 2) * 1000 * elapsedSeconds / 3600;
+    hasPowerSamples = true;
+  }
+  const netEnergy = hasPowerSamples ? Math.max(0, energyWh) : null;
+  const distanceKm = distance / 1000;
+  return {
+    distanceMeters: distance,
+    maxSpeedKmh: maxSpeed,
+    averageSpeedKmh: elapsedMs > 0 ? distanceKm / (elapsedMs / 3600000) : 0,
+    energyWh: netEnergy,
+    consumptionWhPerKm: netEnergy !== null && distanceKm > 0.1 ? netEnergy / distanceKm : null,
+  };
+}
+
 function formatDistance(meters: number): string {
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} км` : `${Math.round(meters)} м`;
 }
 
-function speedColor(speedKmh: number): string {
-  if (speedKmh >= 30) return '#ef4444';
-  if (speedKmh >= 20) return '#f97316';
-  if (speedKmh >= 10) return '#eab308';
-  return '#22c55e';
+function formatDuration(startedAt: number, endedAt: number): string {
+  const minutes = Math.max(0, Math.round((endedAt - startedAt) / 60000));
+  return minutes >= 60 ? `${Math.floor(minutes / 60)} ч ${minutes % 60} мин` : `${minutes} мин`;
+}
+
+function speedColor(speedKmh: number, colors: SpeedColorSet, thresholds: SpeedThresholdSet): string {
+  if (speedKmh >= thresholds[2]) return colors[3];
+  if (speedKmh >= thresholds[1]) return colors[2];
+  if (speedKmh >= thresholds[0]) return colors[1];
+  return colors[0];
 }
 
 export const RouteRecorder: React.FC<{
@@ -70,7 +184,8 @@ export const RouteRecorder: React.FC<{
   onIssue: (message: string | null) => void;
   hudCompact?: boolean;
   speedKmh?: number;
-}> = ({ apiKey, onIssue, hudCompact = false, speedKmh }) => {
+  powerKw?: number;
+}> = ({ apiKey, onIssue, hudCompact = false, speedKmh, powerKw }) => {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<InstanceType<YandexMapApi['Map']> | null>(null);
   const lineRefs = useRef<InstanceType<YandexMapApi['Polyline']>[]>([]);
@@ -79,10 +194,16 @@ export const RouteRecorder: React.FC<{
   const currentPositionRef = useRef<{ lat: number; lon: number } | null>(null);
   const currentSpeedRef = useRef(speedKmh);
   currentSpeedRef.current = speedKmh;
+  const currentPowerRef = useRef(powerKw);
+  currentPowerRef.current = powerKw;
   const watchIdRef = useRef<number | null>(null);
   const ignoreNextFixRef = useRef(false);
   const pointsRef = useRef<RoutePoint[]>([]);
   const [points, setPoints] = useState<RoutePoint[]>(loadSavedRoute);
+  const [trips, setTrips] = useState<RecordedTrip[]>(loadSavedTrips);
+  const [speedColors, setSpeedColors] = useState<SpeedColorSet>(loadSavedSpeedColors);
+  const [speedThresholds, setSpeedThresholds] = useState<SpeedThresholdSet>(loadSavedSpeedThresholds);
+  const [thresholdDrafts, setThresholdDrafts] = useState<[string, string, string]>(() => loadSavedSpeedThresholds().map(String) as [string, string, string]);
   pointsRef.current = points;
   const [recording, setRecording] = useState(false);
   const [mapStatus, setMapStatus] = useState('Загрузка карты…');
@@ -92,14 +213,25 @@ export const RouteRecorder: React.FC<{
 
   useEffect(() => { onIssue(gpsIssue ?? mapIssue); }, [gpsIssue, mapIssue, onIssue]);
 
-  const distance = useMemo(
-    () => points.slice(1).reduce((sum, point, index) => sum + distanceMeters(points[index], point), 0),
-    [points]
-  );
-  const maxRecordedSpeed = useMemo(
-    () => points.reduce((max, point) => Math.max(max, point.speedKmh ?? 0), 0),
-    [points]
-  );
+  const routeAnalytics = useMemo(() => calculateTripAnalytics(points), [points]);
+  const { distanceMeters: distance, maxSpeedKmh: maxRecordedSpeed } = routeAnalytics;
+  const parsedThresholds = thresholdDrafts.map((value) => Number(value)) as SpeedThresholdSet;
+  const thresholdsValid = parsedThresholds.every((value) => Number.isInteger(value) && value >= 1 && value <= 100)
+    && parsedThresholds[0] < parsedThresholds[1] && parsedThresholds[1] < parsedThresholds[2];
+  const speedRanges = [
+    `0–${speedThresholds[0]}`,
+    `${speedThresholds[0]}–${speedThresholds[1]}`,
+    `${speedThresholds[1]}–${speedThresholds[2]}`,
+    `${speedThresholds[2]}+`,
+  ];
+
+  const archiveTrip = (routePoints: RoutePoint[]) => {
+    const trip = createRecordedTrip(routePoints);
+    if (!trip) return;
+    setTrips((previous) => previous.some((saved) => saved.id === trip.id)
+      ? previous
+      : [trip, ...previous].slice(0, MAX_SAVED_TRIPS));
+  };
 
   const buildNavigationRoute = (destination: number[]) => {
     const current = currentPositionRef.current;
@@ -216,7 +348,7 @@ export const RouteRecorder: React.FC<{
       const previous = points[index - 1];
       const current = points[index];
       const segmentSpeed = ((previous.speedKmh ?? 0) + (current.speedKmh ?? 0)) / 2;
-      const color = speedColor(segmentSpeed);
+      const color = speedColor(segmentSpeed, speedColors, speedThresholds);
       const activeRun = runs[runs.length - 1];
       if (activeRun?.color === color) {
         activeRun.coords.push([current.lat, current.lon]);
@@ -243,7 +375,7 @@ export const RouteRecorder: React.FC<{
     } else {
       markerRef.current.geometry.setCoordinates(latest);
     }
-  }, [points, mapStatus]);
+  }, [points, mapStatus, speedColors, speedThresholds]);
 
   useEffect(() => {
     const persist = () => {
@@ -256,8 +388,34 @@ export const RouteRecorder: React.FC<{
     if (points.length > 0) persist();
   }, [points]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify(trips));
+    } catch {
+      setGpsIssue('Не удалось сохранить историю поездок: память браузера заполнена.');
+    }
+  }, [trips]);
+
+  useEffect(() => {
+    try { localStorage.setItem(SPEED_COLORS_STORAGE_KEY, JSON.stringify(speedColors)); } catch { /* keep current colors in this session */ }
+  }, [speedColors]);
+
+  useEffect(() => {
+    try { localStorage.setItem(SPEED_THRESHOLDS_STORAGE_KEY, JSON.stringify(speedThresholds)); } catch { /* keep current limits in this session */ }
+  }, [speedThresholds]);
+
   useEffect(() => () => {
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
+    const unfinishedTrip = createRecordedTrip(pointsRef.current);
+    if (!unfinishedTrip) return;
+    try {
+      const savedTrips = loadSavedTrips();
+      if (!savedTrips.some((trip) => trip.id === unfinishedTrip.id)) {
+        localStorage.setItem(TRIPS_STORAGE_KEY, JSON.stringify([unfinishedTrip, ...savedTrips].slice(0, MAX_SAVED_TRIPS)));
+      }
+    } catch {
+      // Keep the in-progress route in ROUTE_STORAGE_KEY if history cannot be saved.
+    }
   }, []);
 
   const startRecording = () => {
@@ -271,7 +429,9 @@ export const RouteRecorder: React.FC<{
     }
     setGpsIssue(null);
     ignoreNextFixRef.current = true;
+    archiveTrip(pointsRef.current);
     try { localStorage.removeItem(ROUTE_STORAGE_KEY); } catch { /* ignore unavailable storage */ }
+    pointsRef.current = [];
     setPoints([]);
     setGpsAccuracy(null);
     setRecording(true);
@@ -295,6 +455,7 @@ export const RouteRecorder: React.FC<{
           at,
           accuracy: position.coords.accuracy,
           speedKmh: Number.isFinite(vescSpeed) ? Math.abs(vescSpeed ?? 0) : Math.max(0, gpsSpeed ?? 0),
+          powerKw: Number.isFinite(currentPowerRef.current) ? currentPowerRef.current : undefined,
         };
         setGpsAccuracy(point.accuracy);
         if (point.accuracy > 60) {
@@ -315,6 +476,7 @@ export const RouteRecorder: React.FC<{
         setPoints((previous) => [...previous, point].slice(-5000));
       },
       (error) => {
+        archiveTrip(pointsRef.current);
         setRecording(false);
         if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
@@ -330,24 +492,84 @@ export const RouteRecorder: React.FC<{
   };
 
   const stopRecording = () => {
+    archiveTrip(pointsRef.current);
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
     watchIdRef.current = null;
     setRecording(false);
     ignoreNextFixRef.current = false;
   };
 
-  const exportGpx = () => {
-    if (points.length === 0) return;
-    const track = points.map((point) =>
+  const exportPointsGpx = (routePoints: RoutePoint[], date = Date.now()) => {
+    if (routePoints.length === 0) return;
+    const track = routePoints.map((point) =>
       `<trkpt lat="${point.lat}" lon="${point.lon}"><time>${new Date(point.at).toISOString()}</time><extensions><speed>${(point.speedKmh ?? 0) / 3.6}</speed></extensions></trkpt>`
     ).join('');
     const gpx = `<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Achilleus Onboard Computer" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Dualtron Achilleus</name><trkseg>${track}</trkseg></trk></gpx>`;
     const url = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }));
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `achilleus-route-${new Date().toISOString().slice(0, 10)}.gpx`;
+    anchor.download = `achilleus-route-${new Date(date).toISOString().slice(0, 10)}.gpx`;
     anchor.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportGpx = () => exportPointsGpx(points);
+
+  const clearCurrentRoute = () => {
+    if (!window.confirm('Удалить текущую запись маршрута? Сохранённые поездки в истории останутся.')) return;
+    if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
+    watchIdRef.current = null;
+    ignoreNextFixRef.current = false;
+    setRecording(false);
+    pointsRef.current = [];
+    setPoints([]);
+    setGpsAccuracy(null);
+    if (navigationRouteRef.current) mapRef.current?.geoObjects.remove(navigationRouteRef.current);
+    navigationRouteRef.current = null;
+    try { localStorage.removeItem(ROUTE_STORAGE_KEY); } catch { /* ignore unavailable storage */ }
+  };
+
+  const showTrip = (trip: RecordedTrip) => {
+    if (recording) stopRecording();
+    pointsRef.current = trip.points;
+    setPoints(trip.points);
+    try { localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(trip.points)); } catch { /* ignore unavailable storage */ }
+    if (trip.points.length < 2) {
+      const point = trip.points[0];
+      if (point) mapRef.current?.setCenter([point.lat, point.lon], 16, { duration: 250 });
+      return;
+    }
+    const latitudes = trip.points.map((point) => point.lat);
+    const longitudes = trip.points.map((point) => point.lon);
+    mapRef.current?.setBounds([
+      [Math.min(...latitudes), Math.min(...longitudes)],
+      [Math.max(...latitudes), Math.max(...longitudes)],
+    ], { checkZoomRange: true, zoomMargin: 24 });
+  };
+
+  const deleteTrip = (tripId: string) => {
+    setTrips((previous) => previous.filter((trip) => trip.id !== tripId));
+    if (pointsRef.current.length > 0 && tripIdFor(pointsRef.current) === tripId) {
+      pointsRef.current = [];
+      setPoints([]);
+      try { localStorage.removeItem(ROUTE_STORAGE_KEY); } catch { /* ignore unavailable storage */ }
+    }
+  };
+
+  const clearTripHistory = () => {
+    if (!window.confirm('Удалить всю историю поездок? Текущая запись маршрута останется.')) return;
+    setTrips([]);
+  };
+
+  const applySpeedThresholds = () => {
+    if (!thresholdsValid) return;
+    setSpeedThresholds(parsedThresholds);
+  };
+
+  const resetSpeedSettings = () => {
+    setSpeedColors([...DEFAULT_SPEED_COLORS]);
+    setSpeedThresholds([...DEFAULT_SPEED_THRESHOLDS]);
+    setThresholdDrafts(DEFAULT_SPEED_THRESHOLDS.map(String) as [string, string, string]);
   };
 
   return (
@@ -373,14 +595,79 @@ export const RouteRecorder: React.FC<{
           <button type="button" onClick={exportGpx} disabled={points.length === 0} className={`route-control border border-[var(--line-strong)] ${hudCompact ? 'px-1.5 py-1 text-[7px]' : 'px-3 py-2 text-[10px]'} font-bold uppercase disabled:opacity-40`}>
             GPX
           </button>
+          <button type="button" onClick={clearCurrentRoute} disabled={points.length === 0 && !recording} aria-label="Очистить текущую запись маршрута" title="Очистить текущую запись маршрута" className={`route-control border border-[var(--line-strong)] ${hudCompact ? 'px-1.5 py-1 text-[7px]' : 'px-3 py-2 text-[10px]'} font-bold uppercase disabled:opacity-40`}>
+            {hudCompact ? '×' : 'ОЧИСТИТЬ'}
+          </button>
         </div>
       </div>
-      <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Цвет маршрута по скорости">
+      <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Настройка цветов скорости на маршруте">
         <span className="shrink-0 font-bold text-[var(--fg-muted)]">КМ/Ч</span>
-        <span className="flex items-center gap-0.5 text-green-500"><i className="block h-1.5 w-2 bg-green-500" />0–10</span>
-        <span className="flex items-center gap-0.5 text-yellow-500"><i className="block h-1.5 w-2 bg-yellow-500" />10–20</span>
-        <span className="flex items-center gap-0.5 text-orange-500"><i className="block h-1.5 w-2 bg-orange-500" />20–30</span>
-        <span className="flex items-center gap-0.5 text-red-500"><i className="block h-1.5 w-2 bg-red-500" />30+</span>
+        <div className="flex min-w-0 items-center gap-1">
+          {speedRanges.map((range, index) => (
+            <label key={range} title={`Изменить цвет ${range} км/ч`} className="relative inline-flex min-w-0 cursor-pointer items-center gap-0.5">
+              <span className="block h-1.5 w-2.5 shrink-0 rounded-[1px]" style={{ backgroundColor: speedColors[index] }} />
+              <span>{range}</span>
+              <input
+                type="color"
+                value={speedColors[index]}
+                aria-label={`Цвет маршрута при скорости ${range} км/ч`}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                onChange={(event) => setSpeedColors((current) => current.map((color, colorIndex) => colorIndex === index ? event.target.value : color) as SpeedColorSet)}
+              />
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => setSpeedColors([...DEFAULT_SPEED_COLORS])}
+          aria-label="Сбросить цвета карты"
+          title="Сбросить цвета карты"
+          className="route-control shrink-0 border border-[var(--line-strong)] px-1 py-0.5 text-[8px] font-bold"
+        >↺</button>
+      </div>
+      <details className="border-b border-[var(--line)]">
+        <summary className={`cursor-pointer select-none font-bold tracking-wider text-[var(--fg-muted)] ${hudCompact ? 'px-2 py-1 text-[7px]' : 'px-3 py-2 text-[9px]'}`}>
+          ДИАПАЗОНЫ СКОРОСТИ • {speedThresholds.join(' / ')} км/ч
+        </summary>
+        <div className={`space-y-2 px-2 pb-2 ${hudCompact ? 'text-[7px]' : 'text-[10px]'}`}>
+          <div className="grid grid-cols-3 gap-2">
+            {thresholdDrafts.map((value, index) => (
+              <label key={index} className="flex flex-col gap-1 text-[var(--fg-muted)]">
+                <span>Граница {index + 1}</span>
+                <span className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    step={1}
+                    inputMode="numeric"
+                    value={value}
+                    onChange={(event) => setThresholdDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item) as [string, string, string])}
+                    className="w-full border border-[var(--line-strong)] bg-[var(--bg)] px-1 py-1 text-[var(--fg)]"
+                    aria-label={`Граница скорости ${index + 1} в км/ч`}
+                  />
+                  <span>км/ч</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[var(--fg-muted)]">Значения должны идти по возрастанию, от 1 до 100.</span>
+            <div className="flex gap-1">
+              <button type="button" onClick={applySpeedThresholds} disabled={!thresholdsValid} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase disabled:opacity-40">ПРИМЕНИТЬ</button>
+              <button type="button" onClick={resetSpeedSettings} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase">СБРОС</button>
+            </div>
+          </div>
+        </div>
+      </details>
+      <div className={`grid grid-cols-4 border-b border-[var(--line)] ${hudCompact ? 'gap-0.5 px-1 py-1 text-[6px]' : 'gap-2 px-3 py-2 text-[9px]'}`} aria-label="Аналитика текущей поездки">
+        <div><div className="text-[var(--fg-muted)]">ДИСТ.</div><div className="font-bold">{formatDistance(routeAnalytics.distanceMeters)}</div></div>
+        <div><div className="text-[var(--fg-muted)]">СРЕД.</div><div className="font-bold">{routeAnalytics.averageSpeedKmh.toFixed(1)} км/ч</div></div>
+        <div><div className="text-[var(--fg-muted)]">МАКС.</div><div className="font-bold">{Math.round(routeAnalytics.maxSpeedKmh)} км/ч</div></div>
+        <div title={routeAnalytics.energyWh === null ? 'Нет данных о мощности VESC' : `Энергия за поездку: ${Math.round(routeAnalytics.energyWh)} Вт·ч`}>
+          <div className="text-[var(--fg-muted)]">РАСХОД</div>
+          <div className="font-bold">{routeAnalytics.consumptionWhPerKm === null ? '—' : `${Math.round(routeAnalytics.consumptionWhPerKm)} Вт·ч/км`}</div>
+        </div>
       </div>
       {!apiKey ? (
         <div className={`flex items-center justify-center px-2 text-center text-[8px] text-[var(--fg-muted)] ${hudCompact ? 'min-h-0 flex-1' : 'h-32 px-4 text-xs'}`}>
@@ -390,8 +677,43 @@ export const RouteRecorder: React.FC<{
         <div ref={mapElementRef} className={`yandex-route-map w-full ${hudCompact ? 'min-h-0 flex-1' : 'h-64 sm:h-80'}`} aria-label="Карта и GPS-маршрут" />
       )}
       <div className={`border-t border-[var(--line)] px-3 py-2 text-[10px] text-[var(--fg-muted)] ${hudCompact ? 'hidden' : ''}`}>
-        Точки маршрута сохраняются только в памяти этого браузера; для отображения карта запрашивает тайлы у Яндекса. Экспорт GPX сохраняет копию на телефон.
+        Текущая запись и история хранятся в этом браузере. При очистке маршрута сохранённые поездки остаются в истории.
       </div>
+      <details className={`border-t border-[var(--line)] ${hudCompact ? 'shrink-0' : ''}`}>
+        <summary className={`cursor-pointer select-none font-bold tracking-wider ${hudCompact ? 'px-2 py-1.5 text-[8px]' : 'px-3 py-2 text-[10px]'}`}>
+          ИСТОРИЯ ПОЕЗДОК • {trips.length}
+        </summary>
+        <div className={`space-y-1 overflow-y-auto px-2 pb-2 ${hudCompact ? 'max-h-28' : 'max-h-72'}`}>
+          {trips.length === 0 ? (
+            <div className="py-2 text-[9px] text-[var(--fg-muted)]">Остановите запись, чтобы сохранить поездку в истории.</div>
+          ) : trips.map((trip) => {
+            const analytics = calculateTripAnalytics(trip.points);
+            const averageSpeed = trip.averageSpeedKmh ?? analytics.averageSpeedKmh;
+            const consumption = trip.consumptionWhPerKm ?? analytics.consumptionWhPerKm;
+            return (
+              <article key={trip.id} className="flex flex-wrap items-center justify-between gap-1 border border-[var(--line)] px-2 py-1.5">
+                <div className="min-w-0 text-[8px] leading-relaxed sm:text-[10px]">
+                  <div className="font-bold">{new Date(trip.startedAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="text-[var(--fg-muted)]">
+                    {formatDistance(trip.distanceMeters)} • {formatDuration(trip.startedAt, trip.endedAt)} • ср. {averageSpeed.toFixed(1)} • макс. {Math.round(trip.maxSpeedKmh)} км/ч
+                    {consumption !== null ? ` • ${Math.round(consumption)} Вт·ч/км` : ''}
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => showTrip(trip)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">ПОКАЗАТЬ</button>
+                  <button type="button" onClick={() => exportPointsGpx(trip.points, trip.startedAt)} className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">GPX</button>
+                  <button type="button" onClick={() => deleteTrip(trip.id)} aria-label="Удалить поездку" className="route-control border border-[var(--line-strong)] px-1.5 py-1 text-[7px] font-bold uppercase">УДАЛИТЬ</button>
+                </div>
+              </article>
+            );
+          })}
+          {trips.length > 0 && (
+            <button type="button" onClick={clearTripHistory} className="route-control border border-[var(--line-strong)] px-2 py-1 text-[8px] font-bold uppercase">
+              ОЧИСТИТЬ ИСТОРИЮ
+            </button>
+          )}
+        </div>
+      </details>
     </section>
   );
 };
