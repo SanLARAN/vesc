@@ -46,6 +46,7 @@ import { ConnectionTopology, SettingsView } from './components/SettingsView';
 import { ChecklistView } from './components/ChecklistView';
 import { RouteRecorder } from './components/RouteRecorder';
 import { YANDEX_MAPS_API_KEY } from './config';
+import HudView from './components/HudView';
 
 type MainScreenTab = 'dash' | 'bms_guide' | 'remote' | 'settings';
 
@@ -153,6 +154,7 @@ export const App: React.FC = () => {
 
   const [config, setConfig] = useState<OnboardComputerConfig>(loadSavedConfig);
   const [screenTab, setScreenTab] = useState<MainScreenTab>('dash');
+  const [hudMode, setHudMode] = useState(false);
   const [touchLocked, setTouchLocked] = useState<boolean>(false);
   const [parked, setParked] = useState<boolean>(false);
   const [limit25Override, setLimit25Override] = useState<boolean>(false);
@@ -1366,6 +1368,31 @@ export const App: React.FC = () => {
     }
   };
 
+  if (hudMode) {
+    return (
+      <HudView
+        speedKmh={speedSigned}
+        accelerationTimes={dragStats.bestTimes}
+        frontLevel={frontIndicator.level}
+        rearLevel={rearIndicator.level}
+        frontDetail={frontIndicator.detail}
+        rearDetail={rearIndicator.detail}
+        brakeActive={totalBattCurrent < -0.6}
+        regenAmps={totalBattCurrent}
+        powerKw={totalPowerWatts / 1000}
+        batteryPct={computerMetrics.batteryPct}
+        packVoltage={packVoltage}
+        estimatedRangeKm={computerMetrics.estimatedRangeKm}
+        connectionLabel={topology === 'sim' ? 'ДЕМО • НЕ ДАННЫЕ С САМОКАТА' : link1Name ? `LIVE • ${link1Name}` : 'НЕТ СВЯЗИ'}
+        alerts={systemAlerts}
+        onExit={() => {
+          setHudMode(false);
+          if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+        }}
+      />
+    );
+  }
+
   return (
     <div className="dashboard-only min-h-screen bg-[var(--bg)] pb-4 text-[var(--fg)] selection:bg-[var(--inv-bg)] selection:text-[var(--inv-fg)]">
       {touchLocked && (
@@ -1390,16 +1417,28 @@ export const App: React.FC = () => {
               {topology === 'sim' ? 'ДЕМО-РЕЖИМ' : link1Name ? `СВЯЗЬ: ${link1Name}` : 'НЕТ СВЯЗИ'}
             </div>
           </div>
-          <button
-            type="button"
-            className="connect-control border border-[var(--fg)] bg-[var(--inv-bg)] px-3 py-2 text-[11px] font-bold tracking-wider uppercase text-[var(--inv-fg)]"
-            onClick={() => {
-              if (link1Name || link2Name) void disconnectAllLinks();
-              else void handleConnectBleSlot(1);
-            }}
-          >
-            {link1Name || link2Name ? 'ОТКЛЮЧИТЬ' : 'ПОДКЛЮЧИТЬ BLE'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="hud-control border border-[var(--fg)] bg-[var(--bg)] px-3 py-2 text-[11px] font-bold tracking-wider uppercase"
+              onClick={() => {
+                setHudMode(true);
+                void document.documentElement.requestFullscreen?.().catch(() => {});
+              }}
+            >
+              HUD
+            </button>
+            <button
+              type="button"
+              className="connect-control border border-[var(--fg)] bg-[var(--inv-bg)] px-3 py-2 text-[11px] font-bold tracking-wider uppercase text-[var(--inv-fg)]"
+              onClick={() => {
+                if (link1Name || link2Name) void disconnectAllLinks();
+                else void handleConnectBleSlot(1);
+              }}
+            >
+              {link1Name || link2Name ? 'ОТКЛЮЧИТЬ' : 'ПОДКЛЮЧИТЬ BLE'}
+            </button>
+          </div>
         </div>
         <div className="mx-auto max-w-4xl px-3.5 pb-2 text-[10px] leading-relaxed text-[var(--fg-muted)]">
           {browser.isIOS

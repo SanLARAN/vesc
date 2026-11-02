@@ -95,7 +95,7 @@ input[type="range"].mono-range::-moz-range-thumb {
 
 /* Instrument mode: keep only the BLE connect/disconnect control and telemetry. */
 .dashboard-only nav,
-.dashboard-only button:not(.connect-control):not(.route-control):not(.calibration-control) {
+.dashboard-only button:not(.connect-control):not(.route-control):not(.calibration-control):not(.hud-control) {
   display: none !important;
 }
 
