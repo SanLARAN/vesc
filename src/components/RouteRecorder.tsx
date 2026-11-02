@@ -43,8 +43,23 @@ declare global {
 
 const ROUTE_STORAGE_KEY = 'achilleus-yandex-route-v1';
 const TRIPS_STORAGE_KEY = 'achilleus-trip-history-v1';
+const SPEED_COLORS_STORAGE_KEY = 'achilleus-route-speed-colors-v1';
+const DEFAULT_SPEED_COLORS = ['#22c55e', '#eab308', '#f97316', '#ef4444'] as const;
+type SpeedColorSet = [string, string, string, string];
 const MAX_SAVED_TRIPS = 6;
 const SCRIPT_ID = 'yandex-maps-api-v2';
+
+function loadSavedSpeedColors(): SpeedColorSet {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SPEED_COLORS_STORAGE_KEY) ?? 'null') as unknown;
+    if (Array.isArray(parsed) && parsed.length === 4 && parsed.every((color) => typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color))) {
+      return parsed as SpeedColorSet;
+    }
+  } catch {
+    // Use the default speed palette when local storage is unavailable or invalid.
+  }
+  return [...DEFAULT_SPEED_COLORS];
+}
 
 function loadSavedTrips(): RecordedTrip[] {
   try {
@@ -105,11 +120,11 @@ function formatDuration(startedAt: number, endedAt: number): string {
   return minutes >= 60 ? `${Math.floor(minutes / 60)} ч ${minutes % 60} мин` : `${minutes} мин`;
 }
 
-function speedColor(speedKmh: number): string {
-  if (speedKmh >= 30) return '#ef4444';
-  if (speedKmh >= 20) return '#f97316';
-  if (speedKmh >= 10) return '#eab308';
-  return '#22c55e';
+function speedColor(speedKmh: number, colors: SpeedColorSet): string {
+  if (speedKmh >= 30) return colors[3];
+  if (speedKmh >= 20) return colors[2];
+  if (speedKmh >= 10) return colors[1];
+  return colors[0];
 }
 
 export const RouteRecorder: React.FC<{
@@ -131,6 +146,7 @@ export const RouteRecorder: React.FC<{
   const pointsRef = useRef<RoutePoint[]>([]);
   const [points, setPoints] = useState<RoutePoint[]>(loadSavedRoute);
   const [trips, setTrips] = useState<RecordedTrip[]>(loadSavedTrips);
+  const [speedColors, setSpeedColors] = useState<SpeedColorSet>(loadSavedSpeedColors);
   pointsRef.current = points;
   const [recording, setRecording] = useState(false);
   const [mapStatus, setMapStatus] = useState('Загрузка карты…');
@@ -272,7 +288,7 @@ export const RouteRecorder: React.FC<{
       const previous = points[index - 1];
       const current = points[index];
       const segmentSpeed = ((previous.speedKmh ?? 0) + (current.speedKmh ?? 0)) / 2;
-      const color = speedColor(segmentSpeed);
+      const color = speedColor(segmentSpeed, speedColors);
       const activeRun = runs[runs.length - 1];
       if (activeRun?.color === color) {
         activeRun.coords.push([current.lat, current.lon]);
@@ -299,7 +315,7 @@ export const RouteRecorder: React.FC<{
     } else {
       markerRef.current.geometry.setCoordinates(latest);
     }
-  }, [points, mapStatus]);
+  }, [points, mapStatus, speedColors]);
 
   useEffect(() => {
     const persist = () => {
@@ -319,6 +335,10 @@ export const RouteRecorder: React.FC<{
       setGpsIssue('Не удалось сохранить историю поездок: память браузера заполнена.');
     }
   }, [trips]);
+
+  useEffect(() => {
+    try { localStorage.setItem(SPEED_COLORS_STORAGE_KEY, JSON.stringify(speedColors)); } catch { /* keep current colors in this session */ }
+  }, [speedColors]);
 
   useEffect(() => () => {
     if (watchIdRef.current !== null) navigator.geolocation?.clearWatch(watchIdRef.current);
@@ -504,12 +524,30 @@ export const RouteRecorder: React.FC<{
           </button>
         </div>
       </div>
-      <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Цвет маршрута по скорости">
+      <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Настройка цветов скорости на маршруте">
         <span className="shrink-0 font-bold text-[var(--fg-muted)]">КМ/Ч</span>
-        <span className="flex items-center gap-0.5 text-green-500"><i className="block h-1.5 w-2 bg-green-500" />0–10</span>
-        <span className="flex items-center gap-0.5 text-yellow-500"><i className="block h-1.5 w-2 bg-yellow-500" />10–20</span>
-        <span className="flex items-center gap-0.5 text-orange-500"><i className="block h-1.5 w-2 bg-orange-500" />20–30</span>
-        <span className="flex items-center gap-0.5 text-red-500"><i className="block h-1.5 w-2 bg-red-500" />30+</span>
+        <div className="flex min-w-0 items-center gap-1">
+          {(['0–10', '10–20', '20–30', '30+'] as const).map((range, index) => (
+            <label key={range} title={`Изменить цвет ${range} км/ч`} className="relative inline-flex min-w-0 cursor-pointer items-center gap-0.5">
+              <span className="block h-1.5 w-2.5 shrink-0 rounded-[1px]" style={{ backgroundColor: speedColors[index] }} />
+              <span>{range}</span>
+              <input
+                type="color"
+                value={speedColors[index]}
+                aria-label={`Цвет маршрута при скорости ${range} км/ч`}
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                onChange={(event) => setSpeedColors((current) => current.map((color, colorIndex) => colorIndex === index ? event.target.value : color) as SpeedColorSet)}
+              />
+            </label>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => setSpeedColors([...DEFAULT_SPEED_COLORS])}
+          aria-label="Сбросить цвета карты"
+          title="Сбросить цвета карты"
+          className="route-control shrink-0 border border-[var(--line-strong)] px-1 py-0.5 text-[8px] font-bold"
+        >↺</button>
       </div>
       {!apiKey ? (
         <div className={`flex items-center justify-center px-2 text-center text-[8px] text-[var(--fg-muted)] ${hudCompact ? 'min-h-0 flex-1' : 'h-32 px-4 text-xs'}`}>
