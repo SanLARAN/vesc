@@ -3,6 +3,7 @@ name: Deploy GitHub Pages
 on:
   push:
     branches:
+      - main
       - arena/233649e9-vesc
   workflow_dispatch:
 
