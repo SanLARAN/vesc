@@ -199,8 +199,8 @@ const HudView: React.FC<HudViewProps> = ({
           </section>
         )}
 
-        <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3" aria-label="Тормоз, мощность, заряд и запас хода">
-          <div className={`border p-3 sm:p-4 ${brakeActive ? 'border-amber-400 bg-amber-950/20' : 'border-white/15 bg-white/[0.025]'}`}>
+        <section className="grid auto-rows-fr grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3" aria-label="Тормоз, мощность, заряд и запас хода">
+          <div className={`flex min-h-[88px] flex-col justify-between border p-2.5 sm:min-h-[104px] sm:p-4 ${brakeActive ? 'border-amber-400 bg-amber-950/20' : 'border-white/15 bg-white/[0.025]'}`}>
             <div className={`flex items-center gap-2 text-[9px] font-bold tracking-[0.16em] sm:text-[10px] ${brakeActive ? 'text-amber-300' : 'text-white/45'}`}>
               <BatteryCharging className="h-3.5 w-3.5" /> ТОРМОЗ / РЕКУП
             </div>
@@ -209,16 +209,16 @@ const HudView: React.FC<HudViewProps> = ({
             </div>
             <div className="mt-1 text-[8px] text-white/30 sm:text-[9px]">По рекуперативному току VESC</div>
           </div>
-          <div className="border border-white/15 bg-white/[0.025] p-3 sm:p-4">
+          <div className="flex min-h-[88px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2.5 sm:min-h-[104px] sm:p-4">
             <div className="flex items-center gap-2 text-[9px] font-bold tracking-[0.16em] text-white/45 sm:text-[10px]"><Zap className="h-3.5 w-3.5" /> МОЩНОСТЬ</div>
             <div className="mt-2 tabular-nums text-2xl font-light sm:text-3xl">{powerKw.toFixed(1)} <span className="text-xs font-bold text-white/50">кВт</span></div>
           </div>
-          <div className="border border-white/15 bg-white/[0.025] p-3 sm:p-4">
+          <div className="flex min-h-[88px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2.5 sm:min-h-[104px] sm:p-4">
             <div className="flex items-center justify-between text-[9px] font-bold tracking-[0.16em] text-white/45 sm:text-[10px]"><span>ЗАРЯД</span><span className="tabular-nums">{packVoltage > 0 ? `${packVoltage.toFixed(1)}В` : '—'}</span></div>
             <div className="mt-2 flex items-baseline gap-1"><span className="tabular-nums text-2xl font-light sm:text-3xl">{Math.round(percent)}</span><span className="text-xs font-bold text-white/50">%</span></div>
             <div className="mt-2 h-1.5 w-full bg-white/10"><div className={`h-full transition-[width,background-color] duration-500 ${batteryBarColor}`} style={{ width: `${percent}%` }} /></div>
           </div>
-          <div className="border border-white/15 bg-white/[0.025] p-3 sm:p-4">
+          <div className="flex min-h-[88px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2.5 sm:min-h-[104px] sm:p-4">
             <div className="text-[9px] font-bold tracking-[0.16em] text-white/45 sm:text-[10px]">ОСТАЛОСЬ</div>
             <div className="mt-2 tabular-nums text-2xl font-light sm:text-3xl">~{Math.max(0, Math.round(estimatedRangeKm))} <span className="text-xs font-bold text-white/50">км</span></div>
             <div className="mt-1 text-[8px] text-white/30 sm:text-[9px]">Оценка по текущему расходу</div>

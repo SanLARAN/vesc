@@ -600,64 +600,71 @@ export const RouteRecorder: React.FC<{
           </button>
         </div>
       </div>
-      <div className={`flex items-center justify-between gap-1 border-b border-[var(--line)] ${hudCompact ? 'px-1 py-1 text-[6px]' : 'px-3 py-1.5 text-[9px]'}`} aria-label="Настройка цветов скорости на маршруте">
-        <span className="shrink-0 font-bold text-[var(--fg-muted)]">КМ/Ч</span>
-        <div className="flex min-w-0 items-center gap-1">
-          {speedRanges.map((range, index) => (
-            <label key={range} title={`Изменить цвет ${range} км/ч`} className="relative inline-flex min-w-0 cursor-pointer items-center gap-0.5">
-              <span className="block h-1.5 w-2.5 shrink-0 rounded-[1px]" style={{ backgroundColor: speedColors[index] }} />
-              <span>{range}</span>
-              <input
-                type="color"
-                value={speedColors[index]}
-                aria-label={`Цвет маршрута при скорости ${range} км/ч`}
-                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                onChange={(event) => setSpeedColors((current) => current.map((color, colorIndex) => colorIndex === index ? event.target.value : color) as SpeedColorSet)}
-              />
-            </label>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => setSpeedColors([...DEFAULT_SPEED_COLORS])}
-          aria-label="Сбросить цвета карты"
-          title="Сбросить цвета карты"
-          className="route-control shrink-0 border border-[var(--line-strong)] px-1 py-0.5 text-[8px] font-bold"
-        >↺</button>
-      </div>
       <details className="border-b border-[var(--line)]">
-        <summary className={`cursor-pointer select-none font-bold tracking-wider text-[var(--fg-muted)] ${hudCompact ? 'px-2 py-1 text-[7px]' : 'px-3 py-2 text-[9px]'}`}>
-          ДИАПАЗОНЫ СКОРОСТИ • {speedThresholds.join(' / ')} км/ч
+        <summary className={`cursor-pointer select-none font-bold tracking-wider text-[var(--fg-muted)] ${hudCompact ? 'px-2 py-1.5 text-[7px]' : 'px-3 py-2 text-[9px]'}`}>
+          НАСТРОЙКИ КАРТЫ • ЦВЕТА / ДИАПАЗОНЫ
         </summary>
-        <div className={`space-y-2 px-2 pb-2 ${hudCompact ? 'text-[7px]' : 'text-[10px]'}`}>
-          <div className="grid grid-cols-3 gap-2">
-            {thresholdDrafts.map((value, index) => (
-              <label key={index} className="flex flex-col gap-1 text-[var(--fg-muted)]">
-                <span>Граница {index + 1}</span>
-                <span className="flex items-center gap-1">
+        <div className="border-t border-[var(--line)]">
+          <div className={`flex items-center justify-between gap-1 px-2 py-1.5 ${hudCompact ? 'text-[6px]' : 'text-[9px]'}`} aria-label="Настройка цветов скорости на маршруте">
+            <span className="shrink-0 font-bold text-[var(--fg-muted)]">КМ/Ч</span>
+            <div className="flex min-w-0 items-center gap-1">
+              {speedRanges.map((range, index) => (
+                <label key={range} title={`Изменить цвет ${range} км/ч`} className="relative inline-flex min-w-0 cursor-pointer items-center gap-0.5">
+                  <span className="block h-1.5 w-2.5 shrink-0 rounded-[1px]" style={{ backgroundColor: speedColors[index] }} />
+                  <span>{range}</span>
                   <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    step={1}
-                    inputMode="numeric"
-                    value={value}
-                    onChange={(event) => setThresholdDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item) as [string, string, string])}
-                    className="w-full border border-[var(--line-strong)] bg-[var(--bg)] px-1 py-1 text-[var(--fg)]"
-                    aria-label={`Граница скорости ${index + 1} в км/ч`}
+                    type="color"
+                    value={speedColors[index]}
+                    aria-label={`Цвет маршрута при скорости ${range} км/ч`}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    onChange={(event) => setSpeedColors((current) => current.map((color, colorIndex) => colorIndex === index ? event.target.value : color) as SpeedColorSet)}
                   />
-                  <span>км/ч</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[var(--fg-muted)]">Значения должны идти по возрастанию, от 1 до 100.</span>
-            <div className="flex gap-1">
-              <button type="button" onClick={applySpeedThresholds} disabled={!thresholdsValid} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase disabled:opacity-40">ПРИМЕНИТЬ</button>
-              <button type="button" onClick={resetSpeedSettings} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase">СБРОС</button>
+                </label>
+              ))}
             </div>
+            <button
+              type="button"
+              onClick={() => setSpeedColors([...DEFAULT_SPEED_COLORS])}
+              aria-label="Сбросить цвета карты"
+              title="Сбросить цвета карты"
+              className="route-control shrink-0 border border-[var(--line-strong)] px-1 py-0.5 text-[8px] font-bold"
+            >↺</button>
           </div>
+          <details className="border-t border-[var(--line)]">
+            <summary className={`cursor-pointer select-none font-bold tracking-wider text-[var(--fg-muted)] ${hudCompact ? 'px-2 py-1 text-[7px]' : 'px-3 py-2 text-[9px]'}`}>
+              ГРАНИЦЫ • {speedThresholds.join(' / ')} км/ч
+            </summary>
+            <div className={`space-y-2 px-2 pb-2 ${hudCompact ? 'text-[7px]' : 'text-[10px]'}`}>
+              <div className="grid grid-cols-3 gap-2">
+                {thresholdDrafts.map((value, index) => (
+                  <label key={index} className="flex flex-col gap-1 text-[var(--fg-muted)]">
+                    <span>Граница {index + 1}</span>
+                    <span className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        step={1}
+                        inputMode="numeric"
+                        value={value}
+                        onChange={(event) => setThresholdDrafts((current) => current.map((item, itemIndex) => itemIndex === index ? event.target.value : item) as [string, string, string])}
+                        className="w-full border border-[var(--line-strong)] bg-[var(--bg)] px-1 py-1 text-[var(--fg)]"
+                        aria-label={`Граница скорости ${index + 1} в км/ч`}
+                      />
+                      <span>км/ч</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[var(--fg-muted)]">Значения по возрастанию, 1–100.</span>
+                <div className="flex gap-1">
+                  <button type="button" onClick={applySpeedThresholds} disabled={!thresholdsValid} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase disabled:opacity-40">ПРИМЕНИТЬ</button>
+                  <button type="button" onClick={resetSpeedSettings} className="route-control border border-[var(--line-strong)] px-2 py-1 font-bold uppercase">СБРОС</button>
+                </div>
+              </div>
+            </div>
+          </details>
         </div>
       </details>
       <div className={`grid grid-cols-4 border-b border-[var(--line)] ${hudCompact ? 'gap-0.5 px-1 py-1 text-[6px]' : 'gap-2 px-3 py-2 text-[9px]'}`} aria-label="Аналитика текущей поездки">
