@@ -114,20 +114,20 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="border border-[var(--line)] bg-[var(--bg-surface)] p-4 space-y-3">
+      <div className="card p-4 space-y-3">
         <div className="text-xs font-extrabold tracking-wider uppercase text-[var(--fg)]">
           ЧАСТЬ 20 • СПРАВОЧНЫЕ СТУПЕНИ BMS
         </div>
         <div className="text-[11px] leading-relaxed text-[var(--fg-muted)]">
-          Только справочная таблица. Это приложение отключило отправку конфигурации в VESC; показанный этап — локальная подпись, а не подтверждённое значение контроллера.
+          Справочная таблица. Ток АКБ каждого VESC (Battery Current Max) задаётся в VESC Tool; приборка использует выбранный этап только для предупреждений о превышении тока BMS.
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 border-y border-[var(--line)] py-2 text-xs">
-          <span className="text-[var(--fg-muted)]">Локальный этап приложения</span>
+          <span className="text-[var(--fg-muted)]">Этап в настройках приборки</span>
           <span className="tabular-nums font-bold">{currentPerEscAmps}А × 2 = {currentPerEscAmps * 2}А</span>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {ACHILLEUS_BMS_STAGES.map((stage) => (
-            <div key={stage.id} className="border border-[var(--line)] bg-[var(--bg)] p-2.5">
+            <div key={stage.id} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2.5">
               <div className="text-[10px] font-extrabold uppercase text-[var(--fg-muted)]">{stage.stageLabel}</div>
               <div className="mt-1 tabular-nums text-xs font-semibold">{stage.totalAmps}А · {stage.powerKw}</div>
               <div className="mt-1 text-[9px] text-[var(--fg-faint)]">{stage.whenNote}</div>
@@ -137,7 +137,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
       </div>
 
       {/* PROGRESS HEADER */}
-      <div className="flex items-center justify-between border border-[var(--line)] bg-[var(--bg-surface)] px-4 py-3">
+      <div className="card flex items-center justify-between gap-3 px-4 py-3">
         <div>
           <span className="text-xs font-bold tracking-wider uppercase">
             ИНТЕРАКТИВНЫЙ ЧЕК-ЛИСТ СБОРКИ (ЧАСТИ 16–23)
@@ -161,7 +161,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
       </div>
 
       {/* INTERACTIVE STEPS WITH CRITICAL NOTES */}
-      <div className="divide-y divide-[var(--line)] border border-[var(--line)] bg-[var(--bg-surface)]">
+      <div className="card divide-y divide-[var(--line)] overflow-hidden">
         {ACHILLEUS_STEPS.map((step) => {
           const checked = doneIds.includes(step.id);
           return (
@@ -172,9 +172,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 className="flex w-full items-start gap-3 text-left cursor-pointer"
               >
                 <span
-                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border ${
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
                     checked
-                      ? 'border-[var(--fg)] bg-[var(--inv-bg)] text-[var(--inv-fg)]'
+                      ? 'border-transparent bg-[rgb(var(--accent-rgb))] text-[#04131d]'
                       : 'border-[var(--line-strong)] bg-[var(--bg)]'
                   }`}
                 >
@@ -182,7 +182,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 </span>
                 <div className="flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="border border-[var(--line-strong)] px-1.5 py-0.5 font-mono text-[10px] font-bold">
+                    <span className="rounded-md border border-[var(--line-strong)] px-1.5 py-0.5 font-mono text-[10px] font-bold">
                       {step.part}
                     </span>
                     <span
@@ -200,7 +200,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               </button>
 
               {step.criticalNote && (
-                <div className="ml-8 border-l-2 border-[var(--fg)] bg-[var(--bg)] px-3 py-2 text-xs leading-relaxed text-[var(--fg)]">
+                <div className="ml-8 rounded-r-xl border-l-2 border-[var(--warn)] bg-[var(--surface)] px-3 py-2 text-xs leading-relaxed text-[var(--fg)]">
                   {step.criticalNote}
                 </div>
               )}
