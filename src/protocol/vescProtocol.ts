@@ -12,7 +12,6 @@ export const CommPacketId = {
   COMM_SET_RPM: 8,
   COMM_SET_POS: 9,
   COMM_SET_HANDBRAKE: 10,
-  COMM_TERMINAL_CMD: 20,
   COMM_PRINT: 21,
   COMM_REBOOT: 29,
   COMM_ALIVE: 30,
@@ -49,20 +48,6 @@ export interface VescFirmwareInfo {
   fwMajor: number;
   fwMinor: number;
   hwName: string;
-}
-
-export interface McConfTempParams {
-  store: boolean;
-  forwardCan: boolean;
-  divideByControllers: boolean;
-  currentMinScale: number; // 0..1 regen brake ratio
-  currentMaxScale: number; // 0..1 motor phase torque ratio
-  minErpm: number;         // negative max reverse ERPM
-  maxErpm: number;         // positive max forward ERPM
-  wattMin: number;         // per-ESC or total max regen W (negative)
-  wattMax: number;         // per-ESC or total max discharge W (positive)
-  inCurrentMin: number;    // max battery regen current per ESC (negative A, e.g. -25)
-  inCurrentMax: number;    // max battery discharge current per ESC (positive A, e.g. 50A => 100A on 2x VESC!)
 }
 
 export const VESC_FAULT_CODES_RU: Record<number, string> = {
@@ -180,38 +165,6 @@ export function payloadSetHandbrake(amps: number): Uint8Array {
   return writeInt32Cmd(CommPacketId.COMM_SET_HANDBRAKE, Math.abs(amps) * 1000);
 }
 
-export function payloadTerminalCmd(cmdText: string): Uint8Array {
-  const encoded = new TextEncoder().encode(cmdText);
-  const out = new Uint8Array(1 + encoded.length);
-  out[0] = CommPacketId.COMM_TERMINAL_CMD;
-  out.set(encoded, 1);
-  return out;
-}
-
-/**
- * Full 45-byte binary layout of COMM_SET_MCCONF_TEMP (48) per vedderb/bldc/comm/commands.c,
- * including exact battery input current ceiling (`l_in_current_min` & `l_in_current_max`).
- */
-export function payloadSetMcConfTemp(p: McConfTempParams): Uint8Array {
-  const buf = new Uint8Array(45);
-  const dv = new DataView(buf.buffer);
-  dv.setUint8(0, CommPacketId.COMM_SET_MCCONF_TEMP);
-  dv.setUint8(1, p.store ? 1 : 0);
-  dv.setUint8(2, p.forwardCan ? 1 : 0);
-  dv.setUint8(3, 1); // ack = true
-  dv.setUint8(4, p.divideByControllers ? 1 : 0);
-  dv.setFloat32(5, Math.max(0.0, Math.min(1, p.currentMinScale)), false);
-  dv.setFloat32(9, Math.max(0.0, Math.min(1, p.currentMaxScale)), false);
-  dv.setFloat32(13, p.minErpm, false);
-  dv.setFloat32(17, p.maxErpm, false);
-  dv.setFloat32(21, 0.005, false); // l_min_duty
-  dv.setFloat32(25, 0.95, false);  // l_max_duty
-  dv.setFloat32(29, p.wattMin, false);
-  dv.setFloat32(33, p.wattMax, false);
-  dv.setFloat32(37, -Math.abs(p.inCurrentMin), false);
-  dv.setFloat32(41, Math.max(1, p.inCurrentMax), false);
-  return buf;
-}
 
 export function parseGetValues(payload: Uint8Array): VescTelemetry | null {
   if (payload.length < 54 || payload[0] !== CommPacketId.COMM_GET_VALUES) {

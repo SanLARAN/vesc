@@ -3,24 +3,18 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
-  Download,
   Radar,
-  RotateCcw,
-  Send,
-  Upload,
 } from 'lucide-react';
 import {
   applyPresetWidgets,
   DashboardPresetId,
-  DEFAULT_CONFIG,
   OnboardComputerConfig,
   RideProfile,
-  SCOOTER_WHEEL_PRESETS,
   WidgetId,
 } from '../state/dashboardConfig';
 
 export type ConnectionTopology = 'sim' | 'can-single-ble' | 'dual-ble' | 'usb';
-type SettingsSection = 'scooter' | 'profiles' | 'screen' | 'link';
+type SettingsSection = 'profiles' | 'screen' | 'link';
 
 interface SettingsViewProps {
   config: OnboardComputerConfig;
@@ -37,11 +31,7 @@ interface SettingsViewProps {
   onConnectUsb: () => void;
   onDisconnectAll: () => void;
   onScanCan: () => void;
-  onPushProfileToHardware: (profile: RideProfile, persistFlash: boolean) => void;
-  odometerKm: number;
-  onResetOdometer: () => void;
   logs: string[];
-  onSendTerminal: (cmd: string) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -59,16 +49,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onConnectUsb,
   onDisconnectAll,
   onScanCan,
-  onPushProfileToHardware,
-  odometerKm,
-  onResetOdometer,
   logs,
-  onSendTerminal,
 }) => {
-  const [section, setSection] = useState<SettingsSection>('scooter');
+  const [section, setSection] = useState<SettingsSection>('screen');
   const [editingProfileIdx, setEditingProfileIdx] = useState<number>(3);
-  const [cliText, setCliText] = useState('');
-  const [copiedJson, setCopiedJson] = useState(false);
 
   const selectedProfile = config.profiles[editingProfileIdx] ?? config.profiles[0];
 
@@ -98,31 +82,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onChangeConfig({ widgets: next });
   };
 
-  const handleExportJson = () => {
-    navigator.clipboard?.writeText(JSON.stringify(config, null, 2));
-    setCopiedJson(true);
-    setTimeout(() => setCopiedJson(false), 2000);
-  };
-
-  const handleImportJson = () => {
-    const raw = window.prompt('Вставьте JSON конфигурацию самоката:');
-    if (!raw) return;
-    try {
-      const parsed = JSON.parse(raw) as Partial<OnboardComputerConfig>;
-      onChangeConfig(parsed);
-    } catch {
-      window.alert('Некорректный формат JSON.');
-    }
-  };
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-px border border-[var(--line)] bg-[var(--line)]">
+      <div className="grid grid-cols-3 gap-px border border-[var(--line)] bg-[var(--line)]">
         {[
-          { id: 'scooter' as const, label: 'ACHILLEUS 16S' },
           { id: 'profiles' as const, label: 'ПРОФИЛИ 1–4' },
           { id: 'screen' as const, label: 'ЭКРАН / ПЛИТКИ' },
-          { id: 'link' as const, label: 'СВЯЗЬ / CLI' },
+          { id: 'link' as const, label: 'СВЯЗЬ' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -139,264 +106,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         ))}
       </div>
 
-      {/* SECTION 1: ACHILLEUS 60V / 94A (47A x 2) HARDWARE CONFIG */}
-      {section === 'scooter' && (
-        <div className="border border-[var(--line)] bg-[var(--bg-surface)] p-4 space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--line)] pb-3">
-            <div>
-              <div className="text-[11px] font-bold tracking-widest uppercase text-[var(--fg)]">
-                DUALTRON ACHILLEUS • 16S 60V • BMS 100A ({config.perEscBatteryAmps}А × 2 ={' '}
-                {config.perEscBatteryAmps * 2}А)
-              </div>
-              <div className="text-[11px] text-[var(--fg-muted)]">
-                Master ID 0 = Передний МК (Hall + ADC) • Slave ID 1 = Задний МК (Sensorless CAN 500K)
-              </div>
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-1.5 text-xs text-[var(--fg-muted)]">Размер колеса</div>
-            <div className="grid grid-cols-4 gap-px border border-[var(--line-strong)] bg-[var(--line-strong)]">
-              {SCOOTER_WHEEL_PRESETS.map((tire) => (
-                <button
-                  key={tire.mm}
-                  type="button"
-                  onClick={() => onChangeConfig({ wheelDiameterMm: tire.mm })}
-                  className={`py-2.5 text-[11px] font-bold cursor-pointer ${
-                    config.wheelDiameterMm === tire.mm
-                      ? 'bg-[var(--inv-bg)] text-[var(--inv-fg)]'
-                      : 'bg-[var(--bg)] text-[var(--fg-muted)]'
-                  }`}
-                >
-                  {tire.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <div className="flex justify-between text-xs">
-                <span className="text-[var(--fg-muted)]">
-                  Battery Current Max на КАЖДЫЙ VESC (Ч.20.3)
-                </span>
-                <span className="tabular-nums font-bold">
-                  {config.perEscBatteryAmps} А (суммарно {config.perEscBatteryAmps * 2} А)
-                </span>
-              </div>
-              <input
-                type="range"
-                min={20}
-                max={50}
-                step={1}
-                value={config.perEscBatteryAmps}
-                onChange={(e) =>
-                  onChangeConfig({ perEscBatteryAmps: Number(e.target.value) })
-                }
-                className="mono-range mt-2.5 w-full"
-              />
-              <div className="mt-1 text-[10px] text-[var(--fg-faint)]">
-                Старт 30А → 35А → 40А → Оптимум 45А → Максимум 47А (94А под BMS Achilleus 100A)
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs">
-                <span className="text-[var(--fg-muted)]">
-                  Баланс тяги Переднего МК (ID 0 Hall)
-                </span>
-                <span className="tabular-nums font-bold">
-                  Перед {config.frontTorqueRatioPct}% / Зад 100%
-                </span>
-              </div>
-              <input
-                type="range"
-                min={40}
-                max={100}
-                step={5}
-                value={config.frontTorqueRatioPct}
-                onChange={(e) =>
-                  onChangeConfig({ frontTorqueRatioPct: Number(e.target.value) })
-                }
-                className="mono-range mt-2.5 w-full"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs">
-                <span className="text-[var(--fg-muted)]">
-                  Motor Current Max (фазный ток МК, Ч.16.4)
-                </span>
-                <span className="tabular-nums font-bold">{config.maxCurrentAmps} А</span>
-              </div>
-              <input
-                type="range"
-                min={40}
-                max={100}
-                step={5}
-                value={config.maxCurrentAmps}
-                onChange={(e) =>
-                  onChangeConfig({ maxCurrentAmps: Number(e.target.value) })
-                }
-                className="mono-range mt-2.5 w-full"
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between text-xs">
-                <span className="text-[var(--fg-muted)]">
-                  Motor Current Brake Max (рекуперация, Ч.16.4)
-                </span>
-                <span className="tabular-nums font-bold">-{config.maxBrakeAmps} А</span>
-              </div>
-              <input
-                type="range"
-                min={10}
-                max={65}
-                step={5}
-                value={config.maxBrakeAmps}
-                onChange={(e) =>
-                  onChangeConfig({ maxBrakeAmps: Number(e.target.value) })
-                }
-                className="mono-range mt-2.5 w-full"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-[var(--line)] pt-4">
-            <div>
-              <label className="block text-[11px] text-[var(--fg-muted)]">
-                Cutoff Start / End (В)
-              </label>
-              <div className="mt-1 grid grid-cols-2 gap-1">
-                <input
-                  type="number"
-                  value={config.cutoffStartV}
-                  onChange={(e) =>
-                    onChangeConfig({ cutoffStartV: Number(e.target.value) || 46 })
-                  }
-                  className="w-full border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-2 text-xs font-semibold tabular-nums"
-                />
-                <input
-                  type="number"
-                  value={config.cutoffEndV}
-                  onChange={(e) =>
-                    onChangeConfig({ cutoffEndV: Number(e.target.value) || 43 })
-                  }
-                  className="w-full border border-[var(--line-strong)] bg-[var(--bg)] px-2 py-2 text-xs font-semibold tabular-nums"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-[var(--fg-muted)]">Ёмкость АКБ (А·ч)</label>
-              <input
-                type="number"
-                min={10}
-                max={120}
-                value={config.batteryCapacityAh}
-                onChange={(e) =>
-                  onChangeConfig({ batteryCapacityAh: Number(e.target.value) || 35 })
-                }
-                className="mt-1 w-full border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-2 text-xs font-semibold tabular-nums"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-[var(--fg-muted)]">CAN ID Slave (Ч.18.7)</label>
-              <input
-                type="number"
-                min={0}
-                max={253}
-                value={config.canSlaveId}
-                onChange={(e) =>
-                  onChangeConfig({ canSlaveId: Number(e.target.value) || 1 })
-                }
-                className="mt-1 w-full border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-2 text-xs font-semibold tabular-nums"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] text-[var(--fg-muted)]">PIN-код Паркинга</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="Без PIN"
-                value={config.pinCode}
-                onChange={(e) =>
-                  onChangeConfig({ pinCode: e.target.value.replace(/\D/g, '') })
-                }
-                className="mt-1 w-full border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-2 text-xs font-semibold tabular-nums"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 pt-1">
-            <button
-              type="button"
-              onClick={() =>
-                onChangeConfig({ masterIsFrontHall: !config.masterIsFrontHall })
-              }
-              className="border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-2.5 text-xs font-semibold cursor-pointer"
-            >
-              {config.masterIsFrontHall
-                ? 'ID0 = Перед (Hall) / ID1 = Зад'
-                : 'ID0 = Зад / ID1 = Перед'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                onChangeConfig({ fieldWeakeningSim: !config.fieldWeakeningSim })
-              }
-              className={`border px-3 py-2.5 text-xs font-semibold cursor-pointer ${
-                config.fieldWeakeningSim
-                  ? 'border-[var(--fg)] bg-[var(--inv-bg)] text-[var(--inv-fg)]'
-                  : 'border-[var(--line-strong)] bg-[var(--bg)]'
-              }`}
-            >
-              FW 10A (Ч.21): {config.fieldWeakeningSim ? 'ВКЛ (93 км/ч)' : 'ВЫКЛ (80 км/ч)'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExportJson}
-              className="flex items-center justify-center gap-1.5 border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-2.5 text-xs font-semibold cursor-pointer"
-            >
-              <Download className="h-3.5 w-3.5" />
-              {copiedJson ? 'СКОПИРОВАНО' : 'ЭКСПОРТ JSON'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleImportJson}
-              className="flex items-center justify-center gap-1.5 border border-[var(--line-strong)] bg-[var(--bg)] px-3 py-2.5 text-xs font-semibold cursor-pointer"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              ИМПОРТ JSON
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between border-t border-[var(--line)] pt-3 text-xs">
-            <button
-              type="button"
-              onClick={() => onChangeConfig(DEFAULT_CONFIG)}
-              className="flex items-center gap-1.5 text-[var(--fg-muted)] hover:text-[var(--fg)] cursor-pointer"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              Сбросить к заводскому пресету Achilleus
-            </button>
-            <button
-              type="button"
-              onClick={onResetOdometer}
-              className="text-[11px] text-[var(--fg-muted)] underline cursor-pointer"
-            >
-              Обнулить ODO ({odometerKm.toFixed(1)} км)
-            </button>
-          </div>
-        </div>
-      )}
+      <div className="border border-[var(--line)] bg-[var(--bg-surface)] p-3 text-xs text-[var(--fg-muted)]">
+        Аппаратные лимиты VESC здесь отключены, чтобы исключить случайную запись конфигурации. Оформление и источник скорости меняются во вкладке «ЭКРАН / ПЛИТКИ».
+      </div>
 
       {/* SECTION 2: 4 CUSTOMIZABLE RIDE PROFILES */}
       {section === 'profiles' && selectedProfile && (
@@ -523,24 +235,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2 border-t border-[var(--line)] pt-3">
+          <div className="flex flex-wrap items-center gap-3 border-t border-[var(--line)] pt-3">
             <button
               type="button"
-              onClick={() => {
-                onChangeConfig({ activeProfileId: selectedProfile.id });
-                onPushProfileToHardware(selectedProfile, false);
-              }}
+              onClick={() => onChangeConfig({ activeProfileId: selectedProfile.id })}
               className="bg-[var(--inv-bg)] px-4 py-2.5 text-xs font-bold tracking-wider uppercase text-[var(--inv-fg)] cursor-pointer"
             >
-              ПРИМЕНИТЬ В RAM (ID0 + ID1)
+              СОХРАНИТЬ ПРОФИЛЬ В ПРИЛОЖЕНИИ
             </button>
-            <button
-              type="button"
-              onClick={() => onPushProfileToHardware(selectedProfile, true)}
-              className="border border-[var(--line-strong)] bg-[var(--bg)] px-4 py-2.5 text-xs font-semibold tracking-wider uppercase hover:border-[var(--fg)] cursor-pointer"
-            >
-              ЗАПИСАТЬ В ПАМЯТЬ VESC
-            </button>
+            <span className="text-[10px] text-[var(--fg-faint)]">Профиль задаёт пределы команд приложения; записи конфигурации VESC отключены.</span>
           </div>
         </div>
       )}
@@ -549,6 +252,56 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       {section === 'screen' && (
         <div className="space-y-4">
           <div className="border border-[var(--line)] bg-[var(--bg-surface)] p-4 space-y-4">
+            <div>
+              <div className="mb-1.5 text-xs text-[var(--fg-muted)]">Интерфейс спидометра</div>
+              <div className="mb-2 text-[10px] text-[var(--fg-faint)]">Только оформление экрана — ничего не отправляет в контроллеры.</div>
+              <div className="grid grid-cols-2 gap-px border border-[var(--line-strong)] bg-[var(--line-strong)]">
+                {[
+                  { id: 'classic' as const, label: 'КЛАССИЧЕСКИЙ', hint: 'Чистый монохромный' },
+                  { id: 'cyberpunk' as const, label: 'КИБЕРПАНК', hint: 'Красный неон · широкая панель' },
+                ].map((style) => (
+                  <button
+                    key={style.id}
+                    type="button"
+                    aria-pressed={config.speedometerStyle === style.id}
+                    onClick={() => onChangeConfig({ speedometerStyle: style.id })}
+                    className={`flex flex-col gap-1 px-3 py-3 text-left cursor-pointer ${
+                      config.speedometerStyle === style.id
+                        ? style.id === 'cyberpunk'
+                          ? 'bg-[#18070b] text-[#ff5265]'
+                          : 'bg-[var(--inv-bg)] text-[var(--inv-fg)]'
+                        : 'bg-[var(--bg)] text-[var(--fg-muted)]'
+                    }`}
+                  >
+                    <span className="text-[11px] font-bold tracking-wider">{style.label}</span>
+                    <span className="text-[9px] opacity-70">{style.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1.5 text-xs text-[var(--fg-muted)]">Источник скорости спидометра</div>
+              <div className="mb-2 text-[10px] text-[var(--fg-faint)]">GPS может показывать «—» до появления точного сигнала; скорость VESC доступна при подключённом контроллере.</div>
+              <div className="grid grid-cols-2 gap-px border border-[var(--line-strong)] bg-[var(--line-strong)]">
+                {[
+                  { id: 'vesc' as const, label: 'VESC', hint: 'Скорость по оборотам колеса' },
+                  { id: 'gps' as const, label: 'GPS', hint: 'Скорость приёмника геолокации' },
+                ].map((source) => (
+                  <button
+                    key={source.id}
+                    type="button"
+                    aria-pressed={config.speedSource === source.id}
+                    onClick={() => onChangeConfig({ speedSource: source.id })}
+                    className={`flex flex-col gap-1 px-3 py-3 text-left cursor-pointer ${config.speedSource === source.id ? 'bg-[var(--inv-bg)] text-[var(--inv-fg)]' : 'bg-[var(--bg)] text-[var(--fg-muted)]'}`}
+                  >
+                    <span className="text-[11px] font-bold tracking-wider">{source.label}</span>
+                    <span className="text-[9px] opacity-70">{source.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <div className="mb-1.5 text-xs text-[var(--fg-muted)]">Палитра</div>
@@ -720,7 +473,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       )}
 
-      {/* SECTION 4: BLE / CAN LINK + VESC CLI */}
+      {/* SECTION 4: BLE / CAN LINK */}
       {section === 'link' && (
         <div className="space-y-4">
           <div className="border border-[var(--line)] bg-[var(--bg-surface)] p-4 space-y-4">
@@ -823,37 +576,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           <div className="border border-[var(--line)] bg-[var(--bg-surface)] p-4 space-y-3">
             <div className="text-[11px] font-bold tracking-widest uppercase text-[var(--fg-muted)]">
-              ТЕРМИНАЛ VESC CLI (ПРОВЕРКА FAULTS / HW_STATUS)
+              ЖУРНАЛ ТЕЛЕМЕТРИИ
             </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!cliText.trim()) return;
-                onSendTerminal(cliText.trim());
-                setCliText('');
-              }}
-              className="flex gap-px border border-[var(--line-strong)] bg-[var(--line-strong)]"
-            >
-              <input
-                type="text"
-                value={cliText}
-                onChange={(e) => setCliText(e.target.value)}
-                placeholder="Команда VESC (faults, ping, hw_status | в демо: fault_test / clear)"
-                className="flex-1 bg-[var(--bg)] px-3 py-2 text-xs text-[var(--fg)] placeholder:text-[var(--fg-faint)] outline-none"
-              />
-              <button
-                type="submit"
-                className="flex items-center gap-1.5 bg-[var(--inv-bg)] px-4 py-2 text-xs font-bold uppercase text-[var(--inv-fg)] cursor-pointer"
-              >
-                <Send className="h-3.5 w-3.5" /> ВВОД
-              </button>
-            </form>
-
+            <div className="text-[10px] text-[var(--fg-faint)]">Свободная отправка команд VESC CLI отключена.</div>
             <div className="h-44 overflow-y-auto border border-[var(--line)] bg-[var(--bg)] p-3 font-mono text-[11px] leading-relaxed text-[var(--fg-muted)]">
               {logs.map((line, i) => (
-                <div key={i} className="py-0.5">
-                  {line}
-                </div>
+                <div key={i} className="py-0.5">{line}</div>
               ))}
             </div>
           </div>

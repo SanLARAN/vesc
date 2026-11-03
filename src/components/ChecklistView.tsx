@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
-import { ACHILLEUS_BMS_STAGES, BmsStageSpec } from '../state/dashboardConfig';
+import { ACHILLEUS_BMS_STAGES } from '../state/dashboardConfig';
 
 interface ChecklistStep {
   id: string;
@@ -86,16 +86,10 @@ const CHECKLIST_STORAGE_KEY = 'vesc_achilleus_checklist_v1';
 
 interface ChecklistViewProps {
   currentPerEscAmps: number;
-  fieldWeakeningSim: boolean;
-  onToggleFieldWeakeningSim: () => void;
-  onApplyBmsStage: (stage: BmsStageSpec, saveEeprom: boolean) => void;
 }
 
 export const ChecklistView: React.FC<ChecklistViewProps> = ({
   currentPerEscAmps,
-  fieldWeakeningSim,
-  onToggleFieldWeakeningSim,
-  onApplyBmsStage,
 }) => {
   const [doneIds, setDoneIds] = useState<string[]>(() => {
     try {
@@ -120,77 +114,25 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* SECTION 20 INTERACTIVE BMS ACHILLEUS STAGE STEPPER */}
-      <div className="border border-[var(--fg)] bg-[var(--bg-surface)] p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-xs font-extrabold tracking-wider uppercase text-[var(--fg)]">
-              ЧАСТЬ 20 • ПЛАН РАСКАЧКИ ТОКА ПОД BMS ACHILLEUS 100A
-            </div>
-            <div className="text-[11px] text-[var(--fg-muted)]">
-              Переключай этапы 30А → 47А прямо с телефона без разборки деки и USB-провода!
-            </div>
-          </div>
-          <span className="border border-[var(--fg)] bg-[var(--inv-bg)] px-2.5 py-1 text-xs font-bold tabular-nums text-[var(--inv-fg)]">
-            СЕЙЧАС: {currentPerEscAmps}А × 2 = {currentPerEscAmps * 2}А
-          </span>
+      <div className="border border-[var(--line)] bg-[var(--bg-surface)] p-4 space-y-3">
+        <div className="text-xs font-extrabold tracking-wider uppercase text-[var(--fg)]">
+          ЧАСТЬ 20 • СПРАВОЧНЫЕ СТУПЕНИ BMS
         </div>
-
-        <div className="grid grid-cols-1 gap-px border border-[var(--line-strong)] bg-[var(--line-strong)] sm:grid-cols-5">
-          {ACHILLEUS_BMS_STAGES.map((st) => {
-            const active = currentPerEscAmps === st.perVescAmps;
-            return (
-              <button
-                key={st.id}
-                type="button"
-                onClick={() => onApplyBmsStage(st, false)}
-                className={`flex flex-col items-start justify-between p-3 text-left transition-colors cursor-pointer ${
-                  active
-                    ? 'bg-[var(--inv-bg)] text-[var(--inv-fg)]'
-                    : 'bg-[var(--bg)] text-[var(--fg)] hover:bg-[var(--bg-subtle)]'
-                }`}
-              >
-                <div className="text-[11px] font-extrabold tracking-wide uppercase">
-                  {st.stageLabel}
-                </div>
-                <div className="mt-1 tabular-nums text-xs font-semibold">
-                  {st.totalAmps}А • {st.powerKw}
-                </div>
-                <div className="mt-0.5 text-[10px] opacity-75">{st.whenNote}</div>
-              </button>
-            );
-          })}
+        <div className="text-[11px] leading-relaxed text-[var(--fg-muted)]">
+          Только справочная таблица. Это приложение отключило отправку конфигурации в VESC; показанный этап — локальная подпись, а не подтверждённое значение контроллера.
         </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
-          <span className="text-[11px] text-[var(--fg-muted)]">
-            Если на старте или в горку BMS отрубает питание — вернись на 1 ступень ниже и нажми «Сохранить в EEPROM».
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onToggleFieldWeakeningSim}
-              className={`border px-3 py-1.5 text-[11px] font-bold uppercase cursor-pointer ${
-                fieldWeakeningSim
-                  ? 'border-[var(--fg)] bg-[var(--inv-bg)] text-[var(--inv-fg)]'
-                  : 'border-[var(--line-strong)] bg-[var(--bg)] text-[var(--fg-muted)]'
-              }`}
-            >
-              Field Weakening 10A: {fieldWeakeningSim ? 'ВКЛ (~93 км/ч)' : 'ВЫКЛ (~80 км/ч)'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const match =
-                  ACHILLEUS_BMS_STAGES.find((s) => s.perVescAmps === currentPerEscAmps) ??
-                  ACHILLEUS_BMS_STAGES[ACHILLEUS_BMS_STAGES.length - 1];
-                onApplyBmsStage(match, true);
-              }}
-              className="border border-[var(--fg)] bg-[var(--bg)] px-3 py-1.5 text-[11px] font-bold uppercase hover:bg-[var(--inv-bg)] hover:text-[var(--inv-fg)] cursor-pointer"
-            >
-              СОХРАНИТЬ {currentPerEscAmps}А×2 В EEPROM
-            </button>
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-y border-[var(--line)] py-2 text-xs">
+          <span className="text-[var(--fg-muted)]">Локальный этап приложения</span>
+          <span className="tabular-nums font-bold">{currentPerEscAmps}А × 2 = {currentPerEscAmps * 2}А</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {ACHILLEUS_BMS_STAGES.map((stage) => (
+            <div key={stage.id} className="border border-[var(--line)] bg-[var(--bg)] p-2.5">
+              <div className="text-[10px] font-extrabold uppercase text-[var(--fg-muted)]">{stage.stageLabel}</div>
+              <div className="mt-1 tabular-nums text-xs font-semibold">{stage.totalAmps}А · {stage.powerKw}</div>
+              <div className="mt-1 text-[9px] text-[var(--fg-faint)]">{stage.whenNote}</div>
+            </div>
+          ))}
         </div>
       </div>
 

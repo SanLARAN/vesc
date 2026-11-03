@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Lock, Settings } from 'lucide-react';
 import {
   CommPacketId,
   emptyTelemetry,
@@ -14,9 +14,7 @@ import {
   payloadSetCurrentBrake,
   payloadSetDuty,
   payloadSetHandbrake,
-  payloadSetMcConfTemp,
   payloadSetRpm,
-  payloadTerminalCmd,
   VescFirmwareInfo,
   VescTelemetry,
   wrapForwardCan,
@@ -29,7 +27,6 @@ import {
 } from './protocol/vescTransport';
 import { DualFlipskySimulator } from './protocol/simulator';
 import {
-  BmsStageSpec,
   loadSavedConfig,
   loadTotalOdometerKm,
   OnboardComputerConfig,
@@ -132,6 +129,7 @@ export const App: React.FC = () => {
   const [config, setConfig] = useState<OnboardComputerConfig>(loadSavedConfig);
   const [screenTab, setScreenTab] = useState<MainScreenTab>('dash');
   const [hudMode, setHudMode] = useState(false);
+  const [showLaunchEasterEgg, setShowLaunchEasterEgg] = useState(true);
   const [touchLocked, setTouchLocked] = useState<boolean>(false);
   const [parked, setParked] = useState<boolean>(false);
   const [limit25Override, setLimit25Override] = useState<boolean>(false);
@@ -249,6 +247,12 @@ export const App: React.FC = () => {
   }, [config.theme]);
 
   useEffect(() => {
+    if (!showLaunchEasterEgg) return;
+    const timeout = window.setTimeout(() => setShowLaunchEasterEgg(false), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [showLaunchEasterEgg]);
+
+  useEffect(() => {
     let disposed = false;
     const nav = navigator as Navigator & {
       wakeLock?: {
@@ -310,8 +314,10 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  const gpsTrackingEnabled = showGpsSpeed || config.speedSource === 'gps';
+
   useEffect(() => {
-    if (!showGpsSpeed) {
+    if (!gpsTrackingEnabled) {
       if (gpsWatchIdRef.current !== null) navigator.geolocation?.clearWatch(gpsWatchIdRef.current);
       gpsWatchIdRef.current = null;
       lastGpsFixRef.current = null;
@@ -383,7 +389,7 @@ export const App: React.FC = () => {
       navigator.geolocation?.clearWatch(watchId);
       if (gpsWatchIdRef.current === watchId) gpsWatchIdRef.current = null;
     };
-  }, [showGpsSpeed]);
+  }, [gpsTrackingEnabled]);
 
   const appendLog = useCallback((line: string) => {
     const stamp = new Date().toLocaleTimeString('ru-RU', { hour12: false });
@@ -401,160 +407,14 @@ export const App: React.FC = () => {
     [config.profiles, config.activeProfileId]
   );
 
-  /**
-   * Sends exact 45-byte COMM_SET_MCCONF_TEMP packets separately to:
-   * - Master (ID 0: Front Hall Sensors + ADC)
-   * - Slave  (ID 1: Rear Sensorless over CAN 500K)
-   */
-  const pushDrivetrainConfig = useCallback(
-    async (
-      profile: RideProfile,
-      mode: TractionDriveMode,
-      isLimit25: boolean,
-      perEscAmpsOverride?: number,
-      persistFlash = false
-    ) => {
-      const cfg = configRef.current;
-      const stagePerEsc = perEscAmpsOverride ?? cfg.perEscBatteryAmps;
-      const capSpeedKmh = isLimit25 ? Math.min(25, profile.maxSpeedKmh) : profile.maxSpeedKmh;
-      const capWatts = isLimit25 ? Math.min(900, profile.maxWatts) : profile.maxWatts;
-      const totalBattBudget = isLimit25
-        ? Math.min(18, profile.maxBattAmps)
-        : Math.min(stagePerEsc * 2, profile.maxBattAmps);
-
-      const maxErpm = kmhToErpm(
-        capSpeedKmh,
-        cfg.polePairs,
-        cfg.gearRatio,
-        cfg.wheelDiameterMm
-      );
-      const minErpm = -kmhToErpm(
-        profile.maxReverseKmh,
-        cfg.polePairs,
-        cfg.gearRatio,
-        cfg.wheelDiameterMm
-      );
-
-      const frontScale =
-        mode === '1wd_rear_sl'
-          ? 0.01
-          : (profile.currentScalePct / 100) * (cfg.frontTorqueRatioPct / 100);
-      const rearScale =
-        mode === '1wd_front_hall' ? 0.01 : profile.currentScalePct / 100;
-
-      const frontBattMax =
-        mode === '1wd_rear_sl'
-          ? 2
-          : mode === '1wd_front_hall'
-          ? Math.min(stagePerEsc, totalBattBudget)
-          : totalBattBudget / 2;
-      const rearBattMax =
-        mode === '1wd_front_hall'
-          ? 2
-          : mode === '1wd_rear_sl'
-          ? Math.min(stagePerEsc, totalBattBudget)
-          : totalBattBudget / 2;
-
-      const frontMasterPacket = payloadSetMcConfTemp({
-        store: persistFlash,
-        forwardCan: false,
-        divideByControllers: false,
-        currentMinScale: profile.brakeScalePct / 100,
-        currentMaxScale: frontScale,
-        minErpm,
-        maxErpm,
-        wattMin: -10000,
-        wattMax: mode === '1wd_rear_sl' ? 50 : capWatts * 0.48,
-        inCurrentMin: -15,
-        inCurrentMax: frontBattMax,
-      });
-
-      const rearSlavePacket = payloadSetMcConfTemp({
-        store: persistFlash,
-        forwardCan: false,
-        divideByControllers: false,
-        currentMinScale: profile.brakeScalePct / 100,
-        currentMaxScale: rearScale,
-        minErpm,
-        maxErpm,
-        wattMin: -10000,
-        wattMax: mode === '1wd_front_hall' ? 50 : capWatts * 0.52,
-        inCurrentMin: -15,
-        inCurrentMax: rearBattMax,
-      });
-
-      if (topologyRef.current === 'sim') {
-        appendLog(
-          `Achilleus: ${isLimit25 ? 'ДУШИЛКА 25' : profile.name} • Перед ${frontBattMax.toFixed(
-            0
-          )}А / Зад ${rearBattMax.toFixed(0)}А (${persistFlash ? 'EEPROM' : 'RAM'}).`
-        );
-        return;
-      }
-
-      if (link1Ref.current?.isConnected()) {
-        await link1Ref.current.sendPayload(frontMasterPacket);
-        if (topologyRef.current === 'can-single-ble' || topologyRef.current === 'usb') {
-          await link1Ref.current.sendPayload(
-            wrapForwardCan(cfg.canSlaveId, rearSlavePacket)
-          );
-        }
-      }
-      if (topologyRef.current === 'dual-ble' && link2Ref.current?.isConnected()) {
-        await link2Ref.current.sendPayload(rearSlavePacket);
-      }
-      appendLog(
-        `Записано в Master ID0 и Slave ID${cfg.canSlaveId}: Перед ${frontBattMax.toFixed(
-          0
-        )}А / Зад ${rearBattMax.toFixed(0)}А (${persistFlash ? 'EEPROM' : 'RAM'}).`
-      );
-    },
-    [appendLog]
-  );
-
   const handleSelectProfile = useCallback(
     (profileId: string) => {
       navigator.vibrate?.(25);
       setLimit25Override(false);
       updateConfig({ activeProfileId: profileId });
-      const found = configRef.current.profiles.find((p) => p.id === profileId);
-      if (found) {
-        void pushDrivetrainConfig(found, configRef.current.tractionMode, false);
-      }
+      appendLog('Профиль изменён в приборке. Конфигурация VESC не записывалась.');
     },
-    [pushDrivetrainConfig, updateConfig]
-  );
-
-  const handleApplyBmsStage = useCallback(
-    (stage: BmsStageSpec, saveEeprom: boolean) => {
-      navigator.vibrate?.(35);
-      const updatedProfiles = configRef.current.profiles.map((p) =>
-        p.id === 'turbo_fw'
-          ? {
-              ...p,
-              maxBattAmps: stage.totalAmps,
-              maxWatts: Math.round(stage.totalAmps * 60),
-            }
-          : p
-      );
-      updateConfig({
-        perEscBatteryAmps: stage.perVescAmps,
-        profiles: updatedProfiles,
-      });
-      const prof =
-        updatedProfiles.find((p) => p.id === configRef.current.activeProfileId) ??
-        updatedProfiles[updatedProfiles.length - 1];
-      if (prof) {
-        void pushDrivetrainConfig(
-          prof,
-          configRef.current.tractionMode,
-          limit25Ref.current,
-          stage.perVescAmps,
-          saveEeprom
-        );
-      }
-    },
-    [pushDrivetrainConfig, updateConfig]
+    [appendLog, updateConfig]
   );
 
   const handleCycleTraction = useCallback(() => {
@@ -562,27 +422,14 @@ export const App: React.FC = () => {
     const idx = TRACTION_CYCLE.indexOf(configRef.current.tractionMode);
     const nextMode = TRACTION_CYCLE[(idx + 1) % TRACTION_CYCLE.length];
     updateConfig({ tractionMode: nextMode });
-    const prof =
-      configRef.current.profiles.find(
-        (p) => p.id === configRef.current.activeProfileId
-      ) ?? configRef.current.profiles[0];
-    if (prof) {
-      void pushDrivetrainConfig(prof, nextMode, limit25Ref.current);
-    }
-  }, [pushDrivetrainConfig, updateConfig]);
+    appendLog('Режим привода изменён в приборке. Конфигурация VESC не записывалась.');
+  }, [appendLog, updateConfig]);
 
   const handleToggleLimit25 = useCallback(() => {
     navigator.vibrate?.([25, 30, 25]);
-    const nextLim = !limit25Ref.current;
-    setLimit25Override(nextLim);
-    const prof =
-      configRef.current.profiles.find(
-        (p) => p.id === configRef.current.activeProfileId
-      ) ?? configRef.current.profiles[0];
-    if (prof) {
-      void pushDrivetrainConfig(prof, configRef.current.tractionMode, nextLim);
-    }
-  }, [pushDrivetrainConfig]);
+    setLimit25Override((value) => !value);
+    appendLog('Лимит скорости изменён в приборке. Конфигурация VESC не записывалась.');
+  }, [appendLog]);
 
   const handleTogglePark = useCallback(() => {
     navigator.vibrate?.(40);
@@ -1061,6 +908,10 @@ export const App: React.FC = () => {
       ? speedRear
       : 0;
   const speedAbs = Math.abs(speedSigned);
+  const primarySpeedKmh = config.speedSource === 'gps' ? (gpsSpeedKmh ?? 0) : speedSigned;
+  const primarySpeedAvailable = config.speedSource === 'gps'
+    ? gpsSpeedKmh !== null
+    : topology === 'sim' || frontOnline || rearOnline;
 
   useEffect(() => {
     if (topology === 'sim') return;
@@ -1270,7 +1121,7 @@ export const App: React.FC = () => {
   const systemAlerts: { level: 'warning' | 'error'; text: string }[] = [];
   if (errorBanner) systemAlerts.push({ level: 'error', text: errorBanner });
   if (routeIssue) systemAlerts.push({ level: 'warning', text: routeIssue });
-  if (showGpsSpeed && gpsSpeedIssue) systemAlerts.push({ level: 'warning', text: gpsSpeedIssue });
+  if (gpsTrackingEnabled && gpsSpeedIssue) systemAlerts.push({ level: 'warning', text: gpsSpeedIssue });
   if (wakeLockState === 'unsupported') {
     systemAlerts.push({ level: 'warning', text: 'Браузер не поддерживает блокировку сна экрана.' });
   } else if (wakeLockState === 'blocked') {
@@ -1313,31 +1164,14 @@ export const App: React.FC = () => {
     systemAlerts.push({ level: 'warning', text: `Напряжение выше полного заряда 16S (67.2 В): ${packVoltage.toFixed(1)} В.` });
   }
 
-  const handleSendCli = async (cmd: string) => {
-    appendLog(`> ${cmd}`);
-    if (topology === 'sim') {
-      if (cmd === 'fault_test') {
-        simRef.current.setSimulatedFault(5);
-        appendLog('Сим: сработала защита OVER_TEMP_FET (#5). Введите clear для сброса.');
-      } else if (cmd === 'clear') {
-        simRef.current.setSimulatedFault(0);
-        appendLog('Сим: ошибки сброшены.');
-      } else {
-        appendLog(
-          'VESC 6.02 (75_100_V2) OK • ID0 Front Hall + ID1 Rear Sensorless • FW 10A @ 0.90'
-        );
-      }
-      return;
-    }
-    if (link1Ref.current?.isConnected()) {
-      await link1Ref.current.sendPayload(payloadTerminalCmd(cmd));
-    }
-  };
 
   if (hudMode) {
     return (
       <HudView
-        speedKmh={speedSigned}
+        speedometerStyle={config.speedometerStyle}
+        speedSource={config.speedSource}
+        speedAvailable={primarySpeedAvailable}
+        speedKmh={primarySpeedKmh}
         frontErpm={frontMasterTelemetry.erpm}
         rearErpm={rearSlaveTelemetry.erpm}
         frontDataAvailable={topology === 'sim' || frontMasterTelemetry.updatedAt > 0}
@@ -1378,7 +1212,24 @@ export const App: React.FC = () => {
   }
 
   return (
-    <div className="dashboard-only min-h-screen bg-[var(--bg)] pb-4 text-[var(--fg)] selection:bg-[var(--inv-bg)] selection:text-[var(--inv-fg)]">
+    <div className={`${screenTab === 'dash' ? 'dashboard-only' : ''} min-h-screen bg-[var(--bg)] pb-4 text-[var(--fg)] selection:bg-[var(--inv-bg)] selection:text-[var(--inv-fg)]`}>
+      {showLaunchEasterEgg && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center overflow-hidden bg-black px-4 py-5 text-center text-white" role="dialog" aria-modal="true" aria-label="Заставка запуска">
+          <img
+            src="./startup-easter-egg.webp"
+            alt="Аниме-девушка с длинными светлыми волосами на фоне леса"
+            className="launch-easter-egg-image pointer-events-none max-h-[72svh] max-w-[88vw] object-contain"
+          />
+          <div className="mt-3 text-[10px] font-black tracking-[0.24em] text-white/80 sm:text-xs">ACHILLEUS · READY</div>
+          <button
+            type="button"
+            className="hud-control mt-4 border border-white/35 px-3 py-2 text-[9px] font-bold tracking-[0.16em] text-white/65"
+            onClick={() => setShowLaunchEasterEgg(false)}
+          >
+            ПРОПУСТИТЬ
+          </button>
+        </div>
+      )}
       {touchLocked && (
         <div className="fixed inset-x-0 bottom-14 z-40 flex items-center justify-center pointer-events-none px-4">
           <button
@@ -1402,6 +1253,16 @@ export const App: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="hud-control flex items-center gap-1.5 border border-[var(--line-strong)] bg-[var(--bg)] px-2.5 py-2 text-[10px] font-bold tracking-wider uppercase text-[var(--fg-muted)]"
+              aria-label="Открыть настройки"
+              title="Настройки"
+              onClick={() => setScreenTab('settings')}
+            >
+              <Settings className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">НАСТРОЙКИ</span>
+            </button>
             <button
               type="button"
               className="hud-control border border-[var(--fg)] bg-[var(--bg)] px-3 py-2 text-[11px] font-bold tracking-wider uppercase"
@@ -1462,7 +1323,12 @@ export const App: React.FC = () => {
           <>
             <HeroCluster
               metric="speed"
-              speedKmh={speedSigned}
+              speedometerStyle={config.speedometerStyle}
+              speedSource={config.speedSource}
+              speedAvailable={primarySpeedAvailable}
+              batteryPct={computerMetrics.batteryPct}
+              packVoltage={packVoltage}
+              speedKmh={primarySpeedKmh}
               powerWatts={totalPowerWatts}
               motorRpm={wheelRpm}
               dutyPct={avgDutyPct}
@@ -1472,7 +1338,7 @@ export const App: React.FC = () => {
               tripDistanceKm={tripDistanceKm}
               rideDurationText={rideDurationText}
               isRegen={totalBattCurrent < -0.6}
-              isReverse={speedSigned < -0.4}
+              isReverse={config.speedSource === 'vesc' && speedSigned < -0.4}
               anyFault={anyFault}
               faultSummary={faultSummary}
               accelerationTimes={dragStats.bestTimes}
@@ -1561,14 +1427,7 @@ export const App: React.FC = () => {
         )}
 
         {screenTab === 'bms_guide' && (
-          <ChecklistView
-            currentPerEscAmps={config.perEscBatteryAmps}
-            fieldWeakeningSim={config.fieldWeakeningSim}
-            onToggleFieldWeakeningSim={() =>
-              updateConfig({ fieldWeakeningSim: !config.fieldWeakeningSim })
-            }
-            onApplyBmsStage={handleApplyBmsStage}
-          />
+          <ChecklistView currentPerEscAmps={config.perEscBatteryAmps} />
         )}
 
         {screenTab === 'remote' && (
@@ -1644,23 +1503,7 @@ export const App: React.FC = () => {
             onConnectUsb={() => void handleConnectUsb()}
             onDisconnectAll={() => void disconnectAllLinks()}
             onScanCan={() => void handleScanCan()}
-            onPushProfileToHardware={(prof, persist) =>
-              void pushDrivetrainConfig(
-                prof,
-                config.tractionMode,
-                limit25Override,
-                undefined,
-                persist
-              )
-            }
-            odometerKm={odometerKm}
-            onResetOdometer={() => {
-              odoAccumRef.current = 0;
-              setOdometerKm(0);
-              saveTotalOdometerKm(0);
-            }}
             logs={logs}
-            onSendTerminal={(cmd) => void handleSendCli(cmd)}
           />
         )}
       </main>
