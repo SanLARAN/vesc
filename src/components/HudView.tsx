@@ -28,9 +28,9 @@ interface Props {
 
 function Tile({ label, value, unit, tone = 'default' }: { label: string; value: string; unit?: string; tone?: Tone }) {
   return (
-    <div className="card flex flex-col justify-center rounded-[20px] px-4 py-3">
+    <div className="card flex flex-col justify-center px-4 py-3">
       <div className="label">{label}</div>
-      <div className="num mt-1 text-[clamp(22px,4.6vh,36px)] font-semibold leading-none tracking-tight" style={{ color: toneColor(tone) }}>
+      <div className="num mt-1.5 text-[clamp(22px,4.6vh,36px)] font-medium leading-none tracking-tight" style={{ color: toneColor(tone) }}>
         {value}
         {unit && <span className="ml-1 text-[12px] font-semibold text-[var(--fg-faint)]">{unit}</span>}
       </div>
@@ -73,14 +73,12 @@ export function HudView({ snap, cfg, capKmh, modeLabel, powerScaleW, alerts, rec
           <ArrowLeft size={18} />
         </button>
         <div className="flex min-w-0 items-center gap-1.5">
-          <span className="chip chip-accent">{modeLabel}</span>
           {cfg.limiterOn && <span className="chip chip-bad num">LIM {cfg.limiterKmh}</span>}
-          {snap.fwActive && <span className="chip chip-warn num">FW {Math.round(snap.fwA)} А</span>}
           {recorder.recording && <span className="chip chip-bad">REC</span>}
         </div>
         <div className="flex items-center gap-2">
           <span className="num text-[15px] font-semibold">{clock.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</span>
-          <button type="button" className="icon-btn" aria-label="Карта" aria-pressed={showMap} onClick={() => setShowMap(!showMap)} style={showMap ? { color: 'rgb(var(--accent-rgb))' } : undefined}>
+          <button type="button" className="icon-btn" aria-label="Карта" aria-pressed={showMap} onClick={() => setShowMap(!showMap)}>
             <MapIcon size={18} />
           </button>
         </div>
@@ -88,8 +86,7 @@ export function HudView({ snap, cfg, capKmh, modeLabel, powerScaleW, alerts, rec
 
       {top && (
         <div
-          className={`mx-4 mb-1 flex items-center gap-2 rounded-2xl px-3 py-2 text-[13px] font-semibold ${top.level === 'bad' ? 'pulse-bad' : ''}`}
-          style={{ background: `color-mix(in srgb, ${top.level === 'bad' ? 'var(--bad)' : 'var(--warn)'} 18%, transparent)`, color: top.level === 'bad' ? 'var(--bad)' : 'var(--warn)' }}
+          className={`alert mx-4 mb-1 ${top.level === 'bad' ? 'alert-bad pulse-bad' : 'alert-warn'}`}
         >
           <TriangleAlert size={16} /> {top.text}
           {alerts.length > 1 && <span className="ml-auto text-[11px] opacity-70">+{alerts.length - 1}</span>}
@@ -98,7 +95,7 @@ export function HudView({ snap, cfg, capKmh, modeLabel, powerScaleW, alerts, rec
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pb-3 landscape:flex-row landscape:items-stretch">
         <div className="flex min-h-0 flex-1 items-center justify-center">
-          <div className="w-full" style={{ maxWidth: 'min(100%, 82vh)' }}>
+          <div className="w-full" style={{ maxWidth: 'min(100%, 110vh)' }}>
             <Speedometer
               speedKmh={snap.speedKmh}
               capKmh={capKmh}

@@ -56,9 +56,9 @@ export const TopBar = memo(function TopBar({
   const dot = (present: boolean, on: boolean, name: string) => (
     <span
       title={name}
-      className="grid h-[18px] min-w-[18px] place-items-center rounded-md px-1 text-[9.5px] font-bold"
+      className="grid h-[18px] min-w-[18px] place-items-center border px-1 text-[9.5px] font-bold"
       style={{
-        background: on ? 'color-mix(in srgb, var(--good) 18%, transparent)' : 'var(--surface-2)',
+        borderColor: on ? 'color-mix(in srgb, var(--good) 60%, transparent)' : 'var(--line-strong)',
         color: on ? 'var(--good)' : present ? 'var(--warn)' : 'var(--fg-faint)',
       }}
     >
@@ -71,8 +71,8 @@ export const TopBar = memo(function TopBar({
       <button
         type="button"
         onClick={onConnectClick}
-        className={`flex h-9 min-w-0 items-center gap-2 rounded-full border px-3 text-[12px] font-semibold ${phase === 'lost' ? 'pulse-bad' : ''}`}
-        style={{ borderColor: `color-mix(in srgb, ${tone} 40%, transparent)`, color: tone, background: 'var(--surface)' }}
+        className={`flex h-9 min-w-0 items-center gap-2 border px-3 text-[11px] font-semibold uppercase tracking-[0.12em] ${phase === 'lost' ? 'pulse-bad' : ''}`}
+        style={{ borderColor: `color-mix(in srgb, ${tone} 45%, transparent)`, color: tone }}
       >
         <Icon size={15} className={busy ? 'animate-spin' : ''} />
         <span className="truncate">{label}</span>
@@ -84,7 +84,7 @@ export const TopBar = memo(function TopBar({
         )}
       </button>
 
-      <div className="num text-[15px] font-semibold tracking-tight">{clock}</div>
+      <div className="num text-[15px] font-medium tracking-[0.04em]">{clock}</div>
 
       <div className="flex items-center gap-2.5">
         <span
@@ -114,12 +114,12 @@ function BatteryGlyph({ pct }: { pct: number | null }) {
   const color = pct === null ? 'var(--fg-faint)' : p < 15 ? 'var(--bad)' : p < 30 ? 'var(--warn)' : 'var(--fg)';
   return (
     <span className="flex items-center gap-1.5" title="Заряд батареи">
-      <span className="num text-[13px] font-semibold" style={{ color }}>
+      <span className="num text-[13px] font-medium" style={{ color }}>
         {pct === null ? '—' : `${Math.round(p)}%`}
       </span>
-      <span className="relative h-[13px] w-[25px] rounded-[4px] border-[1.5px]" style={{ borderColor: color }}>
-        <span className="absolute inset-[1.5px] origin-left rounded-[2px] bar-anim" style={{ background: color, transform: `scaleX(${p / 100})` }} />
-        <span className="absolute -right-[4px] top-1/2 h-[5px] w-[2px] -translate-y-1/2 rounded-r" style={{ background: color }} />
+      <span className="relative h-[12px] w-[24px] border" style={{ borderColor: color }}>
+        <span className="bar-anim absolute inset-[2px] origin-left" style={{ background: color, transform: `scaleX(${p / 100})` }} />
+        <span className="absolute -right-[3px] top-1/2 h-[4px] w-[2px] -translate-y-1/2" style={{ background: color }} />
       </span>
     </span>
   );
