@@ -1,11 +1,19 @@
 {
-  "name": "VESC Бортовой Компьютер — 2× 75100",
+  "id": "./",
+  "name": "VESC Бортовой компьютер",
   "short_name": "VESC БК",
-  "description": "Минималистичный чёрно-белый бортовой компьютер и Web Bluetooth пульт для 2× Flipsky 75100 Pro V2",
+  "description": "Приборная панель электросамоката на VESC: 1WD/2WD, режимы езды, ослабление поля (FW), бортовой компьютер, GPS-трек.",
+  "lang": "ru",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#000000",
-  "orientation": "any"
+  "orientation": "any",
+  "background_color": "#040506",
+  "theme_color": "#040506",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
 }
