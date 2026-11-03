@@ -144,11 +144,13 @@ export const WidgetGrid: React.FC<WidgetGridProps> = ({
 
   const renderTileBody = (id: WidgetId) => {
     switch (id) {
-      case 'battery':
+      case 'battery': {
+        const batteryColor = metrics.batteryPct < 20 ? 'text-red-500' : metrics.batteryPct <= 50 ? 'text-amber-400' : 'text-emerald-500';
+        const batteryBarColor = metrics.batteryPct < 20 ? 'bg-red-500' : metrics.batteryPct <= 50 ? 'bg-amber-400' : 'bg-emerald-500';
         return (
           <div className="space-y-2.5">
             <div className="flex items-baseline justify-between gap-2">
-              <div className={`tabular-nums font-semibold tracking-tight text-[var(--fg)] ${valClass}`}>
+              <div className={`tabular-nums font-semibold tracking-tight ${batteryColor} ${valClass}`}>
                 {metrics.batteryPct}%
               </div>
               <div className="tabular-nums text-sm font-semibold text-[var(--fg)]">
@@ -157,13 +159,13 @@ export const WidgetGrid: React.FC<WidgetGridProps> = ({
             </div>
             <div className="grid grid-cols-10 gap-1">
               {Array.from({ length: 10 }).map((_, idx) => {
-                const filled = metrics.batteryPct >= (idx + 1) * 10 - 4;
+                const filled = metrics.batteryPct >= (idx + 1) * 10;
                 return (
                   <span
                     key={idx}
                     className={`h-2 ${
                       filled
-                        ? 'bg-[var(--fg)]'
+                        ? batteryBarColor
                         : 'bg-[var(--bg-subtle)] border border-[var(--line)]'
                     }`}
                   />
@@ -177,10 +179,11 @@ export const WidgetGrid: React.FC<WidgetGridProps> = ({
               <span>{metrics.cellVoltage.toFixed(2)} В/яч</span>
             </div>
             <div className="text-[9px] tracking-wider uppercase text-[var(--fg-faint)]">
-              SOC — оценка по кривой напряжения + счётчикам А·ч VESC
+              SOC по V_in: 43 В = 0% • 67.2 В = 100%
             </div>
           </div>
         );
+      }
 
       case 'sag_health': {
         const ampRatio = Math.min(

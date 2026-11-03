@@ -85,8 +85,8 @@ const HudView: React.FC<HudViewProps> = ({
   const milestones: SpeedMilestone[] = [30, 60, 75, 90, 100];
   const percent = Math.max(0, Math.min(100, batteryPct));
   const errorList = [...alerts].sort((a, b) => Number(b.level === 'error') - Number(a.level === 'error')).slice(0, 2);
-  const batteryColor = percent <= 15 ? 'text-red-500' : percent <= 30 ? 'text-amber-400' : 'text-emerald-400';
-  const batteryBarColor = percent <= 15 ? 'bg-red-500' : percent <= 30 ? 'bg-amber-400' : 'bg-emerald-400';
+  const batteryColor = percent < 20 ? 'text-red-500' : percent <= 50 ? 'text-amber-400' : 'text-emerald-500';
+  const batteryBarColor = percent < 20 ? 'bg-red-500' : percent <= 50 ? 'bg-amber-400' : 'bg-emerald-500';
   const [mapOpen, setMapOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
