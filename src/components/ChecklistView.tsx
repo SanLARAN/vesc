@@ -127,7 +127,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {ACHILLEUS_BMS_STAGES.map((stage) => (
-            <div key={stage.id} className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2.5">
+            <div key={stage.id} className="border border-[var(--line)] bg-[var(--surface)] p-2.5">
               <div className="text-[10px] font-extrabold uppercase text-[var(--fg-muted)]">{stage.stageLabel}</div>
               <div className="mt-1 tabular-nums text-xs font-semibold">{stage.totalAmps}А · {stage.powerKw}</div>
               <div className="mt-1 text-[9px] text-[var(--fg-faint)]">{stage.whenNote}</div>
@@ -172,9 +172,9 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 className="flex w-full items-start gap-3 text-left cursor-pointer"
               >
                 <span
-                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border ${
                     checked
-                      ? 'border-transparent bg-[rgb(var(--accent-rgb))] text-[#04131d]'
+                      ? 'border-transparent bg-[var(--fg)] text-[var(--bg)]'
                       : 'border-[var(--line-strong)] bg-[var(--bg)]'
                   }`}
                 >
@@ -182,7 +182,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
                 </span>
                 <div className="flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-md border border-[var(--line-strong)] px-1.5 py-0.5 font-mono text-[10px] font-bold">
+                    <span className="border border-[var(--line-strong)] px-1.5 py-0.5 font-mono text-[10px] font-bold">
                       {step.part}
                     </span>
                     <span
@@ -200,7 +200,7 @@ export const ChecklistView: React.FC<ChecklistViewProps> = ({
               </button>
 
               {step.criticalNote && (
-                <div className="ml-8 rounded-r-xl border-l-2 border-[var(--warn)] bg-[var(--surface)] px-3 py-2 text-xs leading-relaxed text-[var(--fg)]">
+                <div className="ml-8 border-l-2 border-[var(--warn)] bg-[var(--surface)] px-3 py-2 text-xs leading-relaxed text-[var(--fg)]">
                   {step.criticalNote}
                 </div>
               )}

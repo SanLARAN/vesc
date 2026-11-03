@@ -123,7 +123,7 @@ function FieldWeakeningCard({ session, snap, cfg, updateConfig }: Props) {
         <FwStatusLine name="Зад" c={controllers.rear} />
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 rounded-[18px] border border-[var(--line)] bg-[var(--surface)] p-3.5">
+      <div className="mt-4 flex items-center justify-between gap-3 border border-[var(--line)] bg-[var(--surface)] p-3.5">
         <div>
           <div className="text-[15px] font-semibold">Field Weakening</div>
           <div className="text-[12px] text-[var(--fg-muted)]">Больше скорости сверху за счёт тока −Id</div>
@@ -293,7 +293,7 @@ function FieldWeakeningCard({ session, snap, cfg, updateConfig }: Props) {
         }
       >
         <div className="flex flex-col gap-3 text-[13px] leading-relaxed">
-          <div className="rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3">
+          <div className="border border-[var(--line)] bg-[var(--surface)] p-3">
             <div className="num">
               {keys.map((k) => CONTROLLER_NAMES[k]).join(' + ')} · {enabled ? `${amps} А, старт ${Math.round(dutyStart * 100)}% duty` : 'ток FW = 0 А'}
             </div>
@@ -310,7 +310,7 @@ function FieldWeakeningCard({ session, snap, cfg, updateConfig }: Props) {
               <Notice tone="bad" icon={<TriangleAlert size={15} />}>
                 Выше «родной» максималки мотор крутится быстрее, чем позволяет напряжение АКБ. Если VESC уйдёт в ошибку (перегрев, перенапряжение, отсечка BMS) — колесо может резко затормозить с броском напряжения. Не используйте FW на почти пустой АКБ и с BMS без запаса по зарядному току.
               </Notice>
-              <label className="flex items-start gap-3 rounded-2xl border border-[var(--line)] p-3">
+              <label className="flex items-start gap-3 border border-[var(--line)] p-3">
                 <input type="checkbox" className="mt-0.5 h-5 w-5 accent-[rgb(var(--accent-rgb))]" checked={ack} onChange={(e) => setAck(e.target.checked)} />
                 <span>Понимаю риски. Проверю FW сначала на поднятом колесе, затем на небольшой скорости.</span>
               </label>
@@ -394,7 +394,7 @@ function ProfileEditor({
         {num('Ток АКБ всего', 'maxBattAmps', 2, 600, 'А')}
       </div>
       {preview.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-3 text-[12.5px]">
+        <div className="mt-4 border border-[var(--line)] bg-[var(--surface)] p-3 text-[12.5px]">
           <div className="label mb-2">Что получит VESC (2WD, без ограничителя)</div>
           {preview.map((r) => (
             <div key={r.key} className="num flex justify-between py-0.5">
@@ -423,9 +423,9 @@ function ProfilesCard({ session, cfg, updateConfig }: Props) {
               key={p.id}
               type="button"
               onClick={() => setEditing(p)}
-              className="flex items-center gap-3 rounded-[18px] border border-[var(--line)] bg-[var(--surface)] p-3 text-left active:scale-[0.99]"
+              className="flex items-center gap-3 border border-[var(--line)] bg-[var(--surface)] p-3 text-left active:scale-[0.99]"
             >
-              <span className="grid h-10 w-14 shrink-0 place-items-center rounded-xl text-[12px] font-bold" style={{ background: `rgb(${rgb} / 0.16)`, color: `rgb(${rgb})` }}>
+              <span className="grid h-10 w-14 shrink-0 place-items-center text-[12px] font-bold" style={{ background: `rgb(${rgb} / 0.16)`, color: `rgb(${rgb})` }}>
                 {p.code}
               </span>
               <span className="num min-w-0 flex-1 text-[12.5px] leading-snug text-[var(--fg-muted)]">
@@ -479,7 +479,7 @@ function ControllerCard({ k, c, cfg }: { k: ControllerKey; c: ControllerState; c
   const v = c.values;
   const kmh = (erpm: number) => erpmToKmh(erpm, cfg.polePairs, cfg.gearRatio, cfg.wheelDiameterMm);
   return (
-    <div className="rounded-[18px] border border-[var(--line)] bg-[var(--surface)] p-3.5">
+    <div className="border border-[var(--line)] bg-[var(--surface)] p-3.5">
       <div className="flex items-center justify-between">
         <div className="text-[14px] font-semibold">{CONTROLLER_NAMES[k]}</div>
         <span className={`chip ${c.present ? 'chip-good' : ''}`}>{c.present ? (c.canId !== null ? `CAN ${c.canId}` : 'прямое') : 'нет связи'}</span>

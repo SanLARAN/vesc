@@ -215,7 +215,7 @@ export function Stat({
   return (
     <div className="min-w-0">
       <div className="label truncate">{label}</div>
-      <div className={`num mt-1 flex items-baseline gap-1 font-semibold leading-none tracking-tight ${fs}`} style={{ color: toneColor(tone) }}>
+      <div className={`num mt-1.5 flex items-baseline gap-1 font-medium leading-none tracking-tight ${fs}`} style={{ color: toneColor(tone) }}>
         <span className="truncate">{value}</span>
         {unit && <span className="text-[11px] font-semibold tracking-normal text-[var(--fg-faint)]">{unit}</span>}
       </div>
@@ -227,8 +227,8 @@ export function Stat({
 export function Meter({ value, tone = 'accent', height = 6 }: { value: number; tone?: Tone; height?: number }) {
   const pct = Math.max(0, Math.min(1, value)) * 100;
   return (
-    <div className="w-full overflow-hidden rounded-full bg-[var(--surface-3)]" style={{ height }}>
-      <div className="bar-anim h-full rounded-full" style={{ width: `${pct}%`, background: toneColor(tone) }} />
+    <div className="w-full overflow-hidden bg-[var(--surface-3)]" style={{ height }}>
+      <div className="bar-anim h-full" style={{ width: `${pct}%`, background: toneColor(tone) }} />
     </div>
   );
 }
@@ -269,9 +269,9 @@ export function Sheet({
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" role="dialog" aria-modal="true" aria-labelledby={id}>
       <div className="sheet-backdrop absolute inset-0" onClick={onClose} />
-      <div className="sheet relative max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-[28px] border border-[var(--line-strong)] bg-[var(--bg-elev)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:rounded-[28px]">
+      <div className="sheet relative max-h-[88vh] w-full max-w-lg overflow-y-auto border-t border-[var(--line-strong)] bg-[var(--bg-elev)] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:border">
         <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 id={id} className="text-[17px] font-semibold leading-snug">
+          <h2 id={id} className="text-[17px] font-semibold leading-snug tracking-[-0.01em]">
             {title}
           </h2>
           <button type="button" className="icon-btn -mr-1 -mt-1 h-9 w-9" aria-label="Закрыть" onClick={onClose}>
@@ -289,8 +289,8 @@ export function Notice({ tone = 'warn', icon, children }: { tone?: Tone; icon?: 
   const c = toneColor(tone);
   return (
     <div
-      className="flex gap-2.5 rounded-2xl border px-3.5 py-3 text-[12.5px] leading-snug"
-      style={{ borderColor: `color-mix(in srgb, ${c} 38%, transparent)`, background: `color-mix(in srgb, ${c} 9%, transparent)` }}
+      className="flex gap-2.5 border border-l-[3px] px-3.5 py-3 text-[12.5px] leading-snug"
+      style={{ borderColor: `color-mix(in srgb, ${c} 32%, transparent)`, borderLeftColor: c, background: `color-mix(in srgb, ${c} 6%, transparent)` }}
     >
       {icon && <span className="mt-0.5 shrink-0" style={{ color: c }}>{icon}</span>}
       <div className="min-w-0 text-[var(--fg)]">{children}</div>

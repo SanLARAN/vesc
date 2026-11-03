@@ -52,7 +52,12 @@ export const ModeBar = memo(function ModeBar({
   ];
   return (
     <section className="card p-3">
-      <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
+      <div
+        className="grid gap-px border border-[var(--line-strong)] bg-[var(--line-strong)]"
+        style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+        role="group"
+        aria-label="Режим езды"
+      >
         {items.map((it) => {
           const active = it.id === activeProfileId;
           const rgb = accentForProfile(it.id === BASE_PROFILE_ID ? null : it.id);
@@ -62,29 +67,25 @@ export const ModeBar = memo(function ModeBar({
               type="button"
               aria-pressed={active}
               onClick={() => onProfile(it.id)}
-              className="relative flex h-[58px] flex-col items-center justify-center rounded-[16px] border transition-all duration-200 active:scale-[0.97]"
-              style={{
-                borderColor: active ? `rgb(${rgb} / 0.7)` : 'var(--line)',
-                background: active ? `linear-gradient(180deg, rgb(${rgb} / 0.28), rgb(${rgb} / 0.1))` : 'var(--surface)',
-                boxShadow: active ? `0 10px 28px -14px rgb(${rgb} / 0.9), inset 0 1px 0 rgb(255 255 255 / 0.08)` : undefined,
-              }}
+              className="relative flex h-[56px] min-w-0 flex-col items-center justify-center transition-colors duration-150"
+              style={{ background: active ? 'var(--fg)' : 'var(--surface)', color: active ? 'var(--bg)' : 'var(--fg)' }}
             >
-              <span
-                className="text-[13px] font-bold tracking-[0.06em]"
-                style={{ color: active ? `rgb(${rgb})` : 'var(--fg)' }}
-              >
-                {it.code}
-              </span>
-              <span className="num mt-0.5 text-[10px] font-semibold text-[var(--fg-faint)]">
+              <span className="max-w-full truncate px-1 text-[12px] font-bold tracking-[0.12em]">{it.code}</span>
+              <span className="num mt-1 text-[10px] font-semibold" style={{ color: active ? 'var(--bg)' : 'var(--fg-faint)', opacity: active ? 0.55 : 1 }}>
                 {it.id === BASE_PROFILE_ID ? it.sub : `≤${it.sub}`}
               </span>
+              <span
+                className="absolute inset-x-0 bottom-0 h-[3px] transition-opacity duration-150"
+                style={{ background: `rgb(${rgb})`, opacity: active ? 1 : 0 }}
+                aria-hidden="true"
+              />
             </button>
           );
         })}
       </div>
 
-      <div className="mt-2.5 flex items-center gap-2">
-        <div className="seg flex-1 p-[3px]" role="group" aria-label="Привод">
+      <div className="mt-2 flex items-stretch gap-2">
+        <div className="seg flex-1" role="group" aria-label="Привод">
           {(
             [
               ['2wd', '2WD'],
@@ -98,7 +99,6 @@ export const ModeBar = memo(function ModeBar({
               aria-pressed={traction === v}
               disabled={v !== '1wd_front_hall' && !rearAvailable && v !== '2wd'}
               onClick={() => onTraction(v)}
-              className="!min-h-[34px] !text-[12px]"
             >
               {label}
             </button>
@@ -108,21 +108,21 @@ export const ModeBar = memo(function ModeBar({
           type="button"
           aria-pressed={limiterOn}
           onClick={() => onLimiter(!limiterOn)}
-          className="num flex h-[42px] items-center gap-1.5 rounded-[14px] border px-3 text-[12px] font-bold"
+          className="num flex items-center gap-2 border px-3 text-[11px] font-bold tracking-[0.12em] transition-colors"
           style={{
-            borderColor: limiterOn ? 'color-mix(in srgb, var(--bad) 60%, transparent)' : 'var(--line)',
-            background: limiterOn ? 'color-mix(in srgb, var(--bad) 16%, transparent)' : 'var(--surface)',
-            color: limiterOn ? 'var(--bad)' : 'var(--fg-muted)',
+            borderColor: limiterOn ? 'var(--bad)' : 'var(--line-strong)',
+            background: limiterOn ? 'var(--bad)' : 'transparent',
+            color: limiterOn ? '#fff' : 'var(--fg-muted)',
           }}
           title="Ограничитель скорости"
         >
-          <span className="grid h-[20px] w-[20px] place-items-center rounded-full border-2 text-[8.5px]" style={{ borderColor: 'currentColor' }}>
+          <span className="grid h-[22px] min-w-[22px] place-items-center border px-0.5 text-[10px]" style={{ borderColor: 'currentColor' }}>
             {limiterKmh}
           </span>
           LIM
         </button>
       </div>
-      <div className="mt-2 px-1">
+      <div className="mt-2.5 px-0.5">
         <StatusLine status={status} />
       </div>
     </section>
