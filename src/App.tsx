@@ -1197,8 +1197,15 @@ export const App: React.FC = () => {
     tripDistanceKm > 0.15
       ? Math.max(14, Math.min(120, netWhTrip / tripDistanceKm))
       : 30.0;
-  const usablePackWh = config.batteryCells * 3.7 * config.batteryCapacityAh * (batteryPct / 100);
-  const estimatedRangeKm = usablePackWh / dynamicWhPerKm;
+  const netAhTrip = Math.max(0, ampHoursConsumedTrip - ampHoursRegenTrip);
+  const dynamicAhPerKm = tripDistanceKm > 0.15 && netAhTrip > 0.05
+    ? Math.max(0.15, Math.min(4, netAhTrip / tripDistanceKm))
+    : null;
+  const availablePackAh = config.batteryCapacityAh * (batteryPct / 100);
+  const usablePackWh = config.batteryCells * 3.7 * availablePackAh;
+  const estimatedRangeKm = dynamicAhPerKm !== null
+    ? availablePackAh / dynamicAhPerKm
+    : usablePackWh / dynamicWhPerKm;
   const rideDurationText = formatDuration(rideSeconds);
 
   const computerMetrics: ComputedComputerMetrics = {
