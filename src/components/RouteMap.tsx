@@ -222,7 +222,7 @@ export function RouteMap({ points, fix, colors, thresholds, follow = true, navig
   };
 
   return (
-    <div className={`yandex-route-map relative overflow-hidden rounded-[22px] border border-[var(--line)] bg-[var(--surface-2)] ${className}`}>
+    <div className={`yandex-route-map relative overflow-hidden border border-[var(--line)] bg-[var(--surface-2)] ${className}`}>
       <div ref={elRef} className="absolute inset-0" />
       {!ready && (
         <div className="absolute inset-0 grid place-items-center p-6 text-center text-[13px] text-[var(--fg-muted)]">
@@ -248,7 +248,7 @@ export function RouteMap({ points, fix, colors, thresholds, follow = true, navig
         </div>
       )}
       {routeInfo && (
-        <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 rounded-2xl border border-[var(--line)] bg-[var(--bg-elev)] px-3 py-2 text-[12.5px] font-medium">
+        <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-2 border border-[var(--line)] bg-[var(--bg-elev)] px-3 py-2 text-[12.5px] font-medium">
           <span className="flex min-w-0 items-center gap-2">
             <Navigation size={14} className="shrink-0 text-[rgb(var(--accent-rgb))]" />
             <span className="truncate">{routeInfo}</span>

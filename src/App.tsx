@@ -78,7 +78,7 @@ function HoldToUnlock({ onUnlock }: { onUnlock: () => void }) {
       <div className="absolute inset-x-0 bottom-[calc(76px+env(safe-area-inset-bottom))] flex justify-center">
         <button
           type="button"
-          className="btn btn-primary select-none px-6 shadow-2xl"
+          className="btn btn-primary select-none px-6"
           onPointerDown={start}
           onPointerUp={cancel}
           onPointerLeave={cancel}
@@ -188,8 +188,8 @@ export function App() {
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.theme = cfg.theme;
-    root.style.setProperty('--accent-rgb', accentForProfile(profile?.id ?? null));
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', cfg.theme === 'dark' ? '#040506' : '#eef0f3');
+    root.style.setProperty('--mode-rgb', accentForProfile(profile?.id ?? null));
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', cfg.theme === 'dark' ? '#000000' : '#f2f2f2');
   }, [cfg.theme, profile?.id]);
 
   /* ───────── Ride mode → VESC (debounced, RAM only) ───────── */
@@ -271,16 +271,18 @@ export function App() {
           {tab === 'dash' && (
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:items-start">
               <div className="flex flex-col gap-3 md:[@media(min-height:720px)]:sticky md:[@media(min-height:720px)]:top-3">
-                <section className="card relative overflow-hidden px-3 pb-3 pt-2">
-                  <div className="absolute right-3 top-3 z-10 flex gap-1.5">
-                    <button type="button" className="icon-btn h-9 w-9" aria-label="Заблокировать экран" onClick={() => setLocked(true)}>
-                      <Lock size={16} />
-                    </button>
-                    <button type="button" className="icon-btn h-9 w-9" aria-label="HUD на весь экран" onClick={() => setHud(true)}>
-                      <Maximize2 size={16} />
-                    </button>
-                  </div>
+                <section className="card relative overflow-hidden px-4 pt-3">
                   <Speedometer
+                    actions={
+                      <>
+                        <button type="button" className="icon-btn h-9 w-9" aria-label="Заблокировать экран" onClick={() => setLocked(true)}>
+                          <Lock size={16} />
+                        </button>
+                        <button type="button" className="icon-btn h-9 w-9" aria-label="HUD на весь экран" onClick={() => setHud(true)}>
+                          <Maximize2 size={16} />
+                        </button>
+                      </>
+                    }
                     speedKmh={snap.speedKmh}
                     capKmh={capKmh}
                     peakKmh={snap.trip.maxSpeedKmh}
@@ -295,26 +297,24 @@ export function App() {
                     modeLabel={modeLabel}
                     sourceLabel={cfg.speedSource === 'gps' ? 'км/ч · GPS' : 'км/ч'}
                   />
-                  <div className="mt-1 grid grid-cols-4 gap-2 border-t border-[var(--line)] px-1 pt-3">
-                    <Stat label="Заряд" value={snap.battery.socPct === null ? '—' : Math.round(snap.battery.socPct)} unit="%" size="sm" tone={snap.battery.socPct !== null && snap.battery.socPct < 20 ? 'bad' : 'default'} />
-                    <Stat label="Запас" value={fmt(snap.rangeKm)} unit="км" size="sm" />
-                    <Stat label="Поездка" value={fmt(snap.trip.distanceKm, 1)} unit="км" size="sm" />
-                    <Stat label="Темп." value={snap.connected ? `${Math.round(Math.max(snap.tempFetMax, snap.tempMotorMax))}°` : '—'} size="sm" tone={snap.tempMotorMax >= cfg.motorWarnTempC || snap.tempFetMax >= cfg.fetWarnTempC ? 'warn' : 'default'} />
+                  <div className="-mx-4 mt-5 grid grid-cols-4 divide-x divide-[var(--line)] border-t border-[var(--line)]">
+                    {[
+                      <Stat key="soc" label="Заряд" value={snap.battery.socPct === null ? '—' : Math.round(snap.battery.socPct)} unit="%" size="sm" tone={snap.battery.socPct !== null && snap.battery.socPct < 20 ? 'bad' : 'default'} />,
+                      <Stat key="range" label="Запас" value={fmt(snap.rangeKm)} unit="км" size="sm" />,
+                      <Stat key="trip" label="Поездка" value={fmt(snap.trip.distanceKm, 1)} unit="км" size="sm" />,
+                      <Stat key="temp" label="Темп." value={snap.connected ? `${Math.round(Math.max(snap.tempFetMax, snap.tempMotorMax))}°` : '—'} size="sm" tone={snap.tempMotorMax >= cfg.motorWarnTempC || snap.tempFetMax >= cfg.fetWarnTempC ? 'warn' : 'default'} />,
+                    ].map((stat) => (
+                      <div key={stat.key} className="min-w-0 px-3 py-3">
+                        {stat}
+                      </div>
+                    ))}
                   </div>
                 </section>
 
                 {alerts.length > 0 && (
                   <section className="flex flex-col gap-1.5">
                     {alerts.slice(0, 3).map((a) => (
-                      <div
-                        key={a.id}
-                        className={`flex items-center gap-2 rounded-2xl border px-3 py-2.5 text-[13px] font-semibold ${a.level === 'bad' ? 'pulse-bad' : ''}`}
-                        style={{
-                          color: a.level === 'bad' ? 'var(--bad)' : 'var(--warn)',
-                          borderColor: `color-mix(in srgb, ${a.level === 'bad' ? 'var(--bad)' : 'var(--warn)'} 40%, transparent)`,
-                          background: `color-mix(in srgb, ${a.level === 'bad' ? 'var(--bad)' : 'var(--warn)'} 10%, transparent)`,
-                        }}
-                      >
+                      <div key={a.id} className={`alert ${a.level === 'bad' ? 'alert-bad pulse-bad' : 'alert-warn'}`}>
                         <TriangleAlert size={15} className="shrink-0" /> {a.text}
                       </div>
                     ))}
@@ -387,10 +387,10 @@ export function App() {
                 setTab(id);
                 window.scrollTo({ top: 0 });
               }}
-              className="relative flex h-[64px] flex-col items-center justify-center gap-1 text-[10.5px] font-semibold text-[var(--fg-faint)] transition-colors"
+              className="relative flex h-[64px] flex-col items-center justify-center gap-1.5 text-[9.5px] font-semibold text-[var(--fg-faint)] transition-colors"
             >
-              <span className="tab-dot absolute top-0 h-[3px] w-8 rounded-b-full" />
-              <Icon size={21} strokeWidth={tab === id ? 2.2 : 1.8} />
+              <span className="tab-dot absolute left-1/2 top-0 -ml-5 h-[2px] w-10" />
+              <Icon size={20} strokeWidth={tab === id ? 1.9 : 1.5} />
               {label}
             </button>
           ))}
@@ -412,10 +412,10 @@ export function App() {
             <button
               key={id}
               type="button"
-              className="flex flex-col items-start rounded-[18px] border p-3 text-left"
+              className="flex flex-col items-start border p-3 text-left"
               style={{
-                borderColor: cfg.lastTopology === id ? 'rgb(var(--accent-rgb) / 0.6)' : 'var(--line)',
-                background: cfg.lastTopology === id ? 'rgb(var(--accent-rgb) / 0.1)' : 'var(--surface)',
+                borderColor: cfg.lastTopology === id ? 'var(--fg)' : 'var(--line-strong)',
+                background: cfg.lastTopology === id ? 'var(--surface-2)' : 'transparent',
               }}
               onClick={() => connectNow(id)}
             >

@@ -6,7 +6,7 @@ import { CONTROLLER_NAMES } from '../hooks/useVescSession';
 import type { MotorLive, RideSnapshot } from '../state/rideEngine';
 import { DRAG_TARGETS } from '../state/tripComputer';
 import type { OnboardComputerConfig, WidgetId } from '../state/dashboardConfig';
-import { Card, fmt, fmtTime, Meter, Stat, Tone } from './ui';
+import { Card, fmt, fmtTime, Meter, Stat, Tone, toneColor } from './ui';
 
 interface WidgetProps {
   snap: RideSnapshot;
@@ -30,12 +30,13 @@ function MotorColumn({ m, ctrl, cfg }: { m: MotorLive; ctrl: ControllerState; cf
   const stateTone: Tone = !ctrl.present ? 'muted' : m.online ? (fault ? 'bad' : 'good') : 'warn';
   const regen = m.phaseA < -0.5;
   return (
-    <div className="min-w-0 rounded-[18px] border border-[var(--line)] bg-[var(--surface)] p-3">
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] font-bold tracking-wide">{CONTROLLER_NAMES[m.key]}</span>
-        <span className={`chip h-[20px] px-2 text-[9.5px] ${stateTone === 'good' ? 'chip-good' : stateTone === 'bad' ? 'chip-bad' : stateTone === 'warn' ? 'chip-warn' : ''}`}>
-          {state}
-        </span>
+    <div className="min-w-0 border border-[var(--line)] p-3">
+      <div className="min-w-0">
+        <div className="truncate text-[11px] font-bold uppercase tracking-[0.12em]">{CONTROLLER_NAMES[m.key]}</div>
+        <div className="mt-1 flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-[0.1em]" style={{ color: toneColor(stateTone) }}>
+          <span className="h-1.5 w-1.5 shrink-0" style={{ background: 'currentColor' }} aria-hidden="true" />
+          <span className="truncate">{state}</span>
+        </div>
       </div>
       <div className="mt-2.5">
         <Stat label="Фаза" value={fmt(Math.abs(m.phaseA))} unit="А" tone={regen ? 'regen' : 'default'} size="lg" />
@@ -180,8 +181,8 @@ function GraphWidget({ snap }: WidgetProps) {
       icon={<Activity size={13} />}
       right={
         <div className="flex gap-3 text-[11px] font-semibold">
-          <span style={{ color: 'rgb(var(--accent-rgb))' }}>● скорость</span>
-          <span style={{ color: 'var(--fg-muted)' }}>● мощность</span>
+          <span style={{ color: 'rgb(var(--accent-rgb))' }}>■ скорость</span>
+          <span style={{ color: 'var(--fg-muted)' }}>■ мощность</span>
         </div>
       }
     >
@@ -236,7 +237,7 @@ function ThermalWidget({ snap, cfg, controllers }: WidgetProps) {
               <div className="relative mt-1.5">
                 <Meter value={(r.t ?? 0) / r.end} tone={tone === 'muted' || tone === 'default' ? 'good' : tone} height={5} />
                 {r.start !== undefined && (
-                  <span className="absolute -top-[3px] h-[11px] w-[2px] rounded bg-[var(--bad)]" style={{ left: `${Math.min(100, (r.start / r.end) * 100)}%` }} title="Начало ограничения тока" />
+                  <span className="absolute -top-[3px] h-[11px] w-[2px] bg-[var(--bad)]" style={{ left: `${Math.min(100, (r.start / r.end) * 100)}%` }} title="Начало ограничения тока" />
                 )}
               </div>
             </div>
