@@ -39,7 +39,7 @@ export function TripsView({ recorder, fix, gpsIssue }: Props) {
       <div className="flex flex-wrap items-center gap-1.5">
         {bands.map((b, i) => (
           <span key={b} className="chip">
-            <span className="h-2 w-2 rounded-full" style={{ background: r.colors[i] }} />
+            <span className="h-2 w-2" style={{ background: r.colors[i] }} />
             <span className="num">{b}</span>
           </span>
         ))}
@@ -57,7 +57,7 @@ export function TripsView({ recorder, fix, gpsIssue }: Props) {
         right={
           r.recording ? (
             <span className="chip chip-bad">
-              <span className="pulse-bad h-2 w-2 rounded-full bg-[var(--bad)]" /> REC
+              <span className="pulse-bad h-2 w-2 bg-[var(--bad)]" /> REC
             </span>
           ) : fix ? (
             <span className="chip chip-good num">GPS ±{Math.round(fix.accuracy)} м</span>
@@ -151,7 +151,7 @@ export function TripsView({ recorder, fix, gpsIssue }: Props) {
                 type="color"
                 value={c}
                 aria-label={`Цвет ${bands[i]}`}
-                className="h-11 w-14 cursor-pointer rounded-xl border border-[var(--line-strong)] bg-transparent"
+                className="h-11 w-14 cursor-pointer border border-[var(--line-strong)] bg-transparent"
                 onChange={(e) => {
                   const next = [...r.colors] as typeof r.colors;
                   next[i] = e.target.value;

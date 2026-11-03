@@ -88,10 +88,10 @@ function ConnectionSection({ session, cfg, updateConfig }: Props) {
             type="button"
             aria-pressed={topo === t.id}
             onClick={() => setTopo(t.id)}
-            className="flex flex-col items-start gap-1.5 rounded-[18px] border p-3 text-left transition-colors"
+            className="flex flex-col items-start gap-1.5 border p-3 text-left transition-colors"
             style={{
-              borderColor: topo === t.id ? 'rgb(var(--accent-rgb) / 0.6)' : 'var(--line)',
-              background: topo === t.id ? 'rgb(var(--accent-rgb) / 0.1)' : 'var(--surface)',
+              borderColor: topo === t.id ? 'var(--fg)' : 'var(--line-strong)',
+              background: topo === t.id ? 'var(--surface-2)' : 'transparent',
             }}
           >
             <span style={{ color: topo === t.id ? 'rgb(var(--accent-rgb))' : 'var(--fg-muted)' }}>{t.icon}</span>
@@ -156,7 +156,7 @@ function ConnectionSection({ session, cfg, updateConfig }: Props) {
         {showLogs ? 'Скрыть журнал' : `Журнал связи (${session.logs.length})`}
       </button>
       {showLogs && (
-        <div className="mt-2 max-h-64 overflow-y-auto rounded-2xl border border-[var(--line)] bg-[var(--surface)] p-2 font-mono text-[11px] leading-relaxed">
+        <div className="mt-2 max-h-64 overflow-y-auto border border-[var(--line)] bg-[var(--surface)] p-2 font-mono text-[11px] leading-relaxed">
           {session.logs.length === 0 && <div className="p-2 text-[var(--fg-faint)]">Пусто</div>}
           {[...session.logs].reverse().map((l) => (
             <div key={l.id} className="flex gap-2 px-1">
