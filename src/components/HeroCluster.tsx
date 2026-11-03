@@ -4,6 +4,8 @@ import {
   PrimaryHeroMetric,
   RideProfile,
   TractionDriveMode,
+  SpeedometerStyle,
+  SpeedSource,
 } from '../state/dashboardConfig';
 import type { SpeedMilestone } from './WidgetGrid';
 
@@ -30,6 +32,11 @@ const ControllerIndicator: React.FC<{ side: 'ПЕРЕД' | 'ЗАД'; level: Indi
 
 interface HeroClusterProps {
   metric: PrimaryHeroMetric;
+  speedometerStyle: SpeedometerStyle;
+  speedSource: SpeedSource;
+  speedAvailable: boolean;
+  batteryPct: number;
+  packVoltage: number;
   speedKmh: number;
   powerWatts: number;
   motorRpm: number;
@@ -70,6 +77,11 @@ interface HeroClusterProps {
 
 export const HeroCluster: React.FC<HeroClusterProps> = ({
   metric,
+  speedometerStyle,
+  speedSource,
+  speedAvailable,
+  batteryPct,
+  packVoltage,
   speedKmh,
   powerWatts,
   motorRpm,
@@ -111,12 +123,23 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
   const maxRefWatts = Math.max(600, limit25Active ? 900 : activeProfile?.maxWatts ?? 5800);
   const powerRatio = Math.max(-1, Math.min(1, powerWatts / maxRefWatts));
   const fwActive = fwCurrentAmps >= 0.8;
+  const isCyberpunk = speedometerStyle === 'cyberpunk';
+  const chargePercent = Math.max(0, Math.min(100, batteryPct));
+  const activePowerSegments = Math.round(Math.abs(powerRatio) * 14);
 
   let mainNumber = parked
     ? 'P'
+    : !speedAvailable
+    ? '—'
     : Math.abs(speedKmh).toFixed(Math.abs(speedKmh) < 10 ? 1 : 0);
-  let mainUnit = parked ? 'ПАРКИНГ' : 'КМ/Ч';
-  let mainLabel = parked ? 'УДЕРЖАНИЕ МОТОР-КОЛЁС' : 'ACHILLEUS • СКОРОСТЬ';
+  let mainUnit = parked ? 'ПАРКИНГ' : speedSource === 'gps' ? 'GPS · КМ/Ч' : 'КМ/Ч';
+  let mainLabel = parked
+    ? 'УДЕРЖАНИЕ МОТОР-КОЛЁС'
+    : !speedAvailable
+    ? 'НЕТ ДАННЫХ СКОРОСТИ'
+    : speedSource === 'gps'
+    ? 'GPS • СКОРОСТЬ'
+    : 'ACHILLEUS • СКОРОСТЬ';
 
   if (!parked) {
     if (metric === 'power') {
@@ -179,7 +202,7 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
   const milestoneTargets: SpeedMilestone[] = [30, 60, 75, 90, 100];
 
   return (
-    <section className="border border-[var(--line)] bg-[var(--bg-surface)]">
+    <section className={`border bg-[var(--bg-surface)] ${isCyberpunk ? 'cyber-speedometer border-[#651522]' : 'border-[var(--line)]'}`}>
       {anyFault && (
         <div className="flex items-center justify-between bg-[var(--inv-bg)] px-4 py-2 text-xs font-bold tracking-wider uppercase text-[var(--inv-fg)]">
           <span>ЗАЩИТА VESC</span>
@@ -187,7 +210,7 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
         </div>
       )}
 
-      {/* Power / Regen Scale Bar */}
+      {!isCyberpunk && (
       <div className="border-b border-[var(--line)] px-4 py-2.5">
         <div className="flex items-center justify-between text-[10px] font-semibold tracking-widest uppercase text-[var(--fg-muted)]">
           <span>{isRegen ? '◀ РЕКУПЕРАЦИЯ -60А' : '◀ РЕКУП'}</span>
@@ -226,7 +249,94 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
         </div>
       </div>
 
-      {/* Main Handlebar Digital Speedometer + twin controller warning lamps */}
+      )}
+
+      {isCyberpunk && (
+        <div className="cyber-speed-layout border-b border-[#651522] px-3 py-3.5 sm:px-6 sm:py-5">
+          <div className="cyber-charge-row">
+            <span className="cyber-caption">АКБ · CHARGE</span>
+            <div className="cyber-charge-segments" role="meter" aria-label={`Заряд батареи ${Math.round(chargePercent)} процентов`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(chargePercent)}>
+              {Array.from({ length: 20 }).map((_, index) => (
+                <span key={index} className={index < Math.ceil(chargePercent / 5) ? 'is-lit' : ''} />
+              ))}
+            </div>
+            <span className="cyber-charge-value tabular-nums">{Math.round(chargePercent)}%</span>
+            <span className="cyber-caption tabular-nums">{packVoltage > 0 ? `${packVoltage.toFixed(1)}V` : '—'}</span>
+          </div>
+
+          <div className="cyber-readout-grid">
+            <div className="cyber-side-stat">
+              <span className="cyber-caption">{isRegen ? 'РЕКУП' : 'POWER'}</span>
+              <strong className="tabular-nums">{Math.abs(powerWatts / 1000).toFixed(1)}</strong>
+              <span className="cyber-unit">КВТ</span>
+            </div>
+
+            <div
+              className="cyber-main-readout"
+              role="button"
+              tabIndex={0}
+              aria-expanded={milestonesExpanded}
+              aria-controls="cyber-acceleration-milestones"
+              aria-label="Спидометр. Двойное касание переключает обычный вид, замеры разгона и скорость GPS"
+              title="Двойное касание: замеры разгона → скорость GPS → обычный спидометр"
+              onPointerUp={handleSpeedPointerUp}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  cycleDisplayMode();
+                }
+              }}
+            >
+              <span className="cyber-caption cyber-main-label">{parked ? 'ACHILLEUS · PARK' : mainLabel}</span>
+              <div className="cyber-main-value tabular-nums">{mainNumber}<span>{mainUnit}</span></div>
+              <div className="cyber-inline-status">
+                <span className={frontIndicatorLevel === 'ok' ? '' : `is-${frontIndicatorLevel}`} title={frontIndicatorDetail}>ПЕРЕД</span>
+                <i />
+                <span className={rearIndicatorLevel === 'ok' ? '' : `is-${rearIndicatorLevel}`} title={rearIndicatorDetail}>ЗАД</span>
+                {fwActive && <span>FW {fwCurrentAmps.toFixed(1)}A</span>}
+                {limit25Active && <span>LIMIT 25</span>}
+                {isReverse && <span>REV</span>}
+                {isRegen && <span className="is-regen">REGEN</span>}
+              </div>
+              {showGpsBadge && (
+                <span className="cyber-gps-badge">GPS {gpsSpeedKmh === null ? '—' : Math.round(gpsSpeedKmh)} KM/H{gpsSpeedAccuracy !== null ? ` · ±${Math.round(gpsSpeedAccuracy)}M` : ''}</span>
+              )}
+            </div>
+
+            <div className="cyber-side-stat">
+              <span className="cyber-caption">WHEEL RPM</span>
+              <strong className="tabular-nums">{Math.abs(Math.round(motorRpm)).toLocaleString('ru-RU')}</strong>
+              <span className="cyber-unit">ОБ/МИН</span>
+            </div>
+          </div>
+
+          <div id="cyber-acceleration-milestones" aria-hidden={!milestonesExpanded} className={`cyber-acceleration-grid ${milestonesExpanded ? 'is-open' : ''}`}>
+            {milestoneTargets.map((target) => {
+              const best = accelerationTimes[target];
+              return <span key={target}>0–{target} <b>{best === null ? '—' : `${best.toFixed(2)}с`}</b></span>;
+            })}
+          </div>
+
+          <div className="cyber-power-footer">
+            <div className="cyber-power-labels"><span>РЕКУП</span><b>TORQUE / POWER</b><span>BMS {perEscBattAmps * 2}A</span></div>
+            <div className="cyber-power-segments" aria-label={`Мощность ${Math.round(powerRatio * 100)} процентов от активного лимита`}>
+              {Array.from({ length: 20 }).map((_, index) => {
+                const active = powerRatio >= 0
+                  ? index >= 5 && index < 5 + activePowerSegments
+                  : index < 5 && index >= 5 - activePowerSegments;
+                return <span key={index} className={`${index === 5 ? 'is-zero' : ''} ${active ? (isRegen ? 'is-regen' : 'is-active') : ''}`} />;
+              })}
+            </div>
+            {showGpsBadge && gpsWheelDiameterCandidate !== null && (
+              <button type="button" className="calibration-control mt-2 border border-[#9b273b] px-2 py-1 text-[9px] font-bold text-[#ff6073]" onPointerUp={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onApplyGpsWheelCalibration(); }}>
+                ПРИМЕНИТЬ Ø {gpsWheelDiameterCandidate} ММ
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!isCyberpunk && (
       <div className="flex items-center justify-center gap-1 border-b border-[var(--line)] px-1 py-4 sm:gap-3 sm:py-6">
         <ControllerIndicator side="ПЕРЕД" level={frontIndicatorLevel} detail={frontIndicatorDetail} />
         <div
@@ -351,6 +461,8 @@ export const HeroCluster: React.FC<HeroClusterProps> = ({
         </div>
         <ControllerIndicator side="ЗАД" level={rearIndicatorLevel} detail={rearIndicatorDetail} />
       </div>
+
+      )}
 
       {/* Handlebar Tactical Controls */}
       <div className="grid grid-cols-3 gap-px border-t border-[var(--line)] bg-[var(--line)]">

@@ -6,6 +6,9 @@ import { RouteRecorder } from './RouteRecorder';
 type LampLevel = 'ok' | 'warning' | 'error';
 
 interface HudViewProps {
+  speedometerStyle: 'classic' | 'cyberpunk';
+  speedSource: 'vesc' | 'gps';
+  speedAvailable: boolean;
   speedKmh: number;
   frontErpm: number;
   rearErpm: number;
@@ -57,6 +60,9 @@ const TempLight: React.FC<{ label: string; temp: number; warningAt: number; crit
 };
 
 const HudView: React.FC<HudViewProps> = ({
+  speedometerStyle,
+  speedSource,
+  speedAvailable,
   speedKmh,
   frontErpm,
   rearErpm,
@@ -93,6 +99,7 @@ const HudView: React.FC<HudViewProps> = ({
 }) => {
   const milestones: SpeedMilestone[] = [30, 60, 75, 90, 100];
   const percent = Math.max(0, Math.min(100, batteryPct));
+  const isCyberpunk = speedometerStyle === 'cyberpunk';
   const errorList = [...alerts].sort((a, b) => Number(b.level === 'error') - Number(a.level === 'error')).slice(0, 2);
   const batteryColor = percent < 20 ? 'text-red-500' : percent <= 50 ? 'text-amber-400' : 'text-emerald-500';
   const batteryBarColor = brakeActive
@@ -136,7 +143,7 @@ const HudView: React.FC<HudViewProps> = ({
   };
 
   return (
-    <div className="hud-screen h-[100svh] w-full overflow-hidden bg-black px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] text-white sm:px-6 sm:pb-3 sm:pt-3">
+    <div className={`hud-screen h-[100svh] w-full overflow-hidden bg-black px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-[max(0.5rem,env(safe-area-inset-top))] text-white sm:px-6 sm:pb-3 sm:pt-3 ${isCyberpunk ? 'cyberpunk-hud' : ''}`}>
       <div className="mx-auto grid h-full w-full max-w-6xl grid-rows-[auto_minmax(0,1fr)_auto] gap-2 sm:gap-3">
         <header className="border-b border-white/15 pb-1.5 sm:pb-2">
           <div className="flex items-center justify-between gap-2">
@@ -165,17 +172,17 @@ const HudView: React.FC<HudViewProps> = ({
         </header>
 
         <section
-          className="relative min-h-0 overflow-hidden"
+          className={`hud-cyber-viewport relative min-h-0 overflow-hidden ${isCyberpunk ? 'is-cyber' : ''}`}
           aria-label="Скорость и карта. Свайп влево — карта, вправо — детали"
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
           <div className={`absolute inset-y-0 left-0 z-10 flex items-center justify-center transition-[width,transform,opacity] duration-500 ease-in-out ${mapOpen ? 'w-[42%]' : advancedOpen ? 'w-full -translate-x-full opacity-0' : 'w-full'}`}>
             <div className="min-w-0 text-center">
-              <div className="mb-1 text-[9px] font-semibold tracking-[0.22em] text-white/40 sm:text-xs">СКОРОСТЬ</div>
+              <div className={`mb-1 text-[9px] font-semibold tracking-[0.22em] text-white/40 sm:text-xs ${isCyberpunk ? 'hud-cyber-caption' : ''}`}>{!speedAvailable ? `ОЖИДАНИЕ ${speedSource.toUpperCase()}` : speedSource === 'gps' ? 'СКОРОСТЬ GPS' : 'СКОРОСТЬ VESC'}</div>
               <div className="flex items-baseline justify-center gap-1.5 sm:gap-3">
-                <span className={`tabular-nums font-light leading-[0.82] tracking-[-0.09em] transition-[font-size] duration-500 ${mapOpen ? 'text-[clamp(3.25rem,13vh,7rem)]' : 'text-[clamp(5rem,26vh,14rem)]'}`}>
-                  {Math.abs(speedKmh).toFixed(Math.abs(speedKmh) < 10 ? 1 : 0)}
+                <span className={`tabular-nums font-light leading-[0.82] tracking-[-0.09em] transition-[font-size] duration-500 ${mapOpen ? 'text-[clamp(3.25rem,13vh,7rem)]' : 'text-[clamp(5rem,26vh,14rem)]'} ${isCyberpunk ? 'hud-cyber-number' : ''}`}>
+                  {speedAvailable ? Math.abs(speedKmh).toFixed(Math.abs(speedKmh) < 10 ? 1 : 0) : '—'}
                 </span>
                 <span className="text-[9px] font-bold tracking-wider text-white/45 sm:text-base">КМ/Ч</span>
               </div>
@@ -204,21 +211,21 @@ const HudView: React.FC<HudViewProps> = ({
           </div>
 
           <div className={`absolute inset-0 z-30 transition-[transform,opacity] duration-400 ease-out ${advancedOpen ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-full opacity-0'}`} aria-hidden={!advancedOpen}>
-            <div className="flex h-full flex-col border border-white/15 bg-black/95 p-2 sm:p-4">
+            <div className={`hud-details-panel flex h-full flex-col border border-white/15 bg-black/95 p-2 sm:p-4 ${isCyberpunk ? 'hud-cyber-details' : ''}`}>
               <div className="mb-1.5 flex items-center justify-between border-b border-white/15 pb-1.5">
                 <div className="text-[9px] font-black tracking-[0.15em] text-white/75 sm:text-xs">ДЕТАЛИ ПОЕЗДКИ</div>
                 <span className="text-[7px] font-bold tracking-wider text-white/30 sm:text-[9px]">VESC · 0 / 1</span>
               </div>
               <div className="grid min-h-0 flex-1 grid-cols-2 gap-1.5 sm:gap-2">
-                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                <div className={`hud-detail-tile flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5 ${isCyberpunk ? 'hud-cyber-tile' : ''}`}>
                   <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">ERPM · ПЕРЕД</span>
                   <span className="tabular-nums text-sm font-semibold sm:text-xl">{frontDataAvailable ? Math.round(frontErpm).toLocaleString('ru-RU') : '—'}</span>
                 </div>
-                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                <div className={`hud-detail-tile flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5 ${isCyberpunk ? 'hud-cyber-tile' : ''}`}>
                   <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">ERPM · ЗАД</span>
                   <span className="tabular-nums text-sm font-semibold sm:text-xl">{rearDataAvailable ? Math.round(rearErpm).toLocaleString('ru-RU') : '—'}</span>
                 </div>
-                <div className={`flex flex-col justify-between border p-1.5 sm:p-2.5 ${possibleWheelSlip ? 'border-amber-400/70 bg-amber-950/20' : 'border-white/15 bg-white/[0.025]'}`}>
+                <div className={`hud-detail-tile flex flex-col justify-between border p-1.5 sm:p-2.5 ${possibleWheelSlip ? 'hud-slip-warning border-amber-400/70 bg-amber-950/20' : 'border-white/15 bg-white/[0.025]'} ${isCyberpunk && !possibleWheelSlip ? 'hud-cyber-tile' : ''}`}>
                   <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">РАЗНИЦА ERPM</span>
                   <span className={`tabular-nums text-sm font-semibold sm:text-xl ${possibleWheelSlip ? 'text-amber-300' : 'text-white/60'}`}>
                     {erpmDifference === null ? '—' : Math.round(erpmDifference).toLocaleString('ru-RU')}
@@ -227,17 +234,17 @@ const HudView: React.FC<HudViewProps> = ({
                     {possibleWheelSlip ? 'ВОЗМОЖНА ПРОБУКСОВКА' : 'ПОРОГ 3 000'}
                   </span>
                 </div>
-                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                <div className={`hud-detail-tile flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5 ${isCyberpunk ? 'hud-cyber-tile' : ''}`}>
                   <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">FW ТОК · ПЕРЕД / ЗАД</span>
                   <span className="tabular-nums text-xs font-semibold sm:text-lg">
                     {frontDataAvailable ? fwFrontAmps.toFixed(1) : '—'} / {rearDataAvailable ? fwRearAmps.toFixed(1) : '—'} <span className="text-[8px] text-white/45">А</span>
                   </span>
                 </div>
-                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                <div className={`hud-detail-tile flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5 ${isCyberpunk ? 'hud-cyber-tile' : ''}`}>
                   <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">РАСХОД</span>
                   <span className="tabular-nums text-sm font-semibold sm:text-xl">{ampHoursConsumed.toFixed(2)} <span className="text-[8px] text-white/45">А·ч</span></span>
                 </div>
-                <div className={`flex flex-col justify-between border p-1.5 sm:p-2.5 ${brakeActive ? 'border-emerald-500/60 bg-emerald-950/20' : 'border-white/15 bg-white/[0.025]'}`}>
+                <div className={`hud-detail-tile flex flex-col justify-between border p-1.5 sm:p-2.5 ${brakeActive ? 'border-emerald-500/60 bg-emerald-950/20' : 'border-white/15 bg-white/[0.025]'} ${isCyberpunk && !brakeActive ? 'hud-cyber-tile' : ''}`}>
                   <span className={`text-[7px] font-bold tracking-wider sm:text-[9px] ${brakeActive ? 'text-emerald-400' : 'text-white/45'}`}>РЕКУПЕРАЦИЯ</span>
                   <span className={`tabular-nums text-sm font-semibold sm:text-xl ${brakeActive ? 'animate-pulse text-emerald-400' : 'text-white/70'}`}>{ampHoursRegen.toFixed(2)} <span className="text-[8px] text-white/45">А·ч</span></span>
                 </div>
@@ -257,7 +264,7 @@ const HudView: React.FC<HudViewProps> = ({
           <button
             type="button"
             onClick={() => { setMapOpen(!mapOpen || advancedOpen); setAdvancedOpen(false); }}
-            className="absolute bottom-1.5 right-1.5 z-40 flex items-center gap-1 border border-white/25 bg-black/85 px-2.5 py-1.5 text-[8px] font-bold tracking-wider text-white/70"
+            className={`hud-overlay-control absolute bottom-1.5 right-1.5 z-40 flex items-center gap-1 border border-white/25 bg-black/85 px-2.5 py-1.5 text-[8px] font-bold tracking-wider text-white/70 ${isCyberpunk ? 'hud-cyber-control' : ''}`}
             aria-label={mapOpen && !advancedOpen ? 'Скрыть карту' : 'Открыть карту'}
           >
             {mapOpen && !advancedOpen ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
@@ -266,7 +273,7 @@ const HudView: React.FC<HudViewProps> = ({
           <button
             type="button"
             onClick={() => { const opening = !advancedOpen; setAdvancedOpen(opening); if (opening) setMapOpen(false); }}
-            className="absolute bottom-1.5 left-1.5 z-40 flex items-center gap-1 border border-white/25 bg-black/85 px-2.5 py-1.5 text-[8px] font-bold tracking-wider text-white/70"
+            className={`hud-overlay-control absolute bottom-1.5 left-1.5 z-40 flex items-center gap-1 border border-white/25 bg-black/85 px-2.5 py-1.5 text-[8px] font-bold tracking-wider text-white/70 ${isCyberpunk ? 'hud-cyber-control' : ''}`}
             aria-label={advancedOpen ? 'Вернуться к спидометру' : 'Открыть детали поездки'}
           >
             {advancedOpen ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
@@ -275,17 +282,17 @@ const HudView: React.FC<HudViewProps> = ({
         </section>
 
         <section className="grid grid-cols-3 gap-1.5 sm:gap-2.5" aria-label="Основные показатели поездки">
-          <div className="flex min-h-[66px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2 sm:min-h-[82px] sm:p-3">
+          <div className={`hud-metric-card flex min-h-[66px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2 sm:min-h-[82px] sm:p-3 ${isCyberpunk ? 'hud-cyber-card' : ''}`}>
             <div className="flex items-center justify-between gap-1 text-[8px] font-bold tracking-wider text-white/45 sm:text-[10px]"><span>БАТАРЕЯ</span><span className="tabular-nums">{packVoltage > 0 ? `${packVoltage.toFixed(1)} В` : '—'}</span></div>
             <div className="flex items-baseline gap-0.5"><span className={`tabular-nums text-xl font-light sm:text-3xl ${batteryColor}`}>{Math.round(percent)}</span><span className="text-[9px] text-white/45">%</span></div>
             <div className="h-1 w-full bg-white/10"><div className={`h-full transition-[width,background-color] duration-500 ${batteryBarColor}`} style={{ width: `${percent}%` }} /></div>
           </div>
-          <div className="flex min-h-[66px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2 sm:min-h-[82px] sm:p-3">
+          <div className={`hud-metric-card flex min-h-[66px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2 sm:min-h-[82px] sm:p-3 ${isCyberpunk ? 'hud-cyber-card' : ''}`}>
             <div className="text-[8px] font-bold tracking-wider text-white/45 sm:text-[10px]">МОЩНОСТЬ</div>
             <div className="tabular-nums text-xl font-light sm:text-3xl">{powerKw.toFixed(1)} <span className="text-[9px] font-bold text-white/45">кВт</span></div>
             <div className={`text-[7px] font-bold sm:text-[9px] ${brakeActive ? 'animate-pulse text-emerald-400' : 'text-white/25'}`}>{brakeActive ? `РЕКУП · ${Math.abs(regenAmps).toFixed(1)} А` : 'МОЩНОСТЬ VESC'}</div>
           </div>
-          <div className="flex min-h-[66px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2 sm:min-h-[82px] sm:p-3">
+          <div className={`hud-metric-card flex min-h-[66px] flex-col justify-between border border-white/15 bg-white/[0.025] p-2 sm:min-h-[82px] sm:p-3 ${isCyberpunk ? 'hud-cyber-card' : ''}`}>
             <div className="text-[8px] font-bold tracking-wider text-white/45 sm:text-[10px]">ЗАПАС ХОДА</div>
             <div className="tabular-nums text-xl font-light sm:text-3xl">~{Math.max(0, Math.round(estimatedRangeKm))} <span className="text-[9px] font-bold text-white/45">км</span></div>
             <div className="text-[7px] text-white/25 sm:text-[9px]">Оценка по расходу</div>

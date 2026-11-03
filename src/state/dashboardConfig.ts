@@ -1,6 +1,8 @@
 export type ThemePolarity = 'dark' | 'light';
 export type PrimaryHeroMetric = 'speed' | 'power' | 'rpm' | 'duty';
 export type FontDensity = 'normal' | 'large';
+export type SpeedometerStyle = 'classic' | 'cyberpunk';
+export type SpeedSource = 'vesc' | 'gps';
 export type DashboardPresetId = 'scooter_pro' | 'minimal' | 'dual_esc';
 export type TractionDriveMode = '2wd' | '1wd_front_hall' | '1wd_rear_sl';
 
@@ -95,6 +97,8 @@ export const ACHILLEUS_BMS_STAGES: BmsStageSpec[] = [
 
 export interface OnboardComputerConfig {
   theme: ThemePolarity;
+  speedometerStyle: SpeedometerStyle;
+  speedSource: SpeedSource;
   heroMetric: PrimaryHeroMetric;
   fontDensity: FontDensity;
   showProfileBarOnDash: boolean;
@@ -203,6 +207,8 @@ export const DEFAULT_WIDGETS: WidgetItemConfig[] = [
 
 export const DEFAULT_CONFIG: OnboardComputerConfig = {
   theme: 'dark',
+  speedometerStyle: 'classic',
+  speedSource: 'vesc',
   heroMetric: 'speed',
   fontDensity: 'large',
   showProfileBarOnDash: true,
