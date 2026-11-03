@@ -7,6 +7,14 @@ type LampLevel = 'ok' | 'warning' | 'error';
 
 interface HudViewProps {
   speedKmh: number;
+  frontErpm: number;
+  rearErpm: number;
+  frontDataAvailable: boolean;
+  rearDataAvailable: boolean;
+  fwFrontAmps: number;
+  fwRearAmps: number;
+  ampHoursConsumed: number;
+  ampHoursRegen: number;
   recordedSpeedKmh?: number;
   recordedPowerKw?: number;
   accelerationTimes: Record<SpeedMilestone, number | null>;
@@ -57,6 +65,14 @@ const TempLight: React.FC<{ label: string; temp: number; warningAt: number; crit
 
 const HudView: React.FC<HudViewProps> = ({
   speedKmh,
+  frontErpm,
+  rearErpm,
+  frontDataAvailable,
+  rearDataAvailable,
+  fwFrontAmps,
+  fwRearAmps,
+  ampHoursConsumed,
+  ampHoursRegen,
   recordedSpeedKmh,
   recordedPowerKw,
   accelerationTimes,
@@ -85,9 +101,16 @@ const HudView: React.FC<HudViewProps> = ({
   const milestones: SpeedMilestone[] = [30, 60, 75, 90, 100];
   const percent = Math.max(0, Math.min(100, batteryPct));
   const errorList = [...alerts].sort((a, b) => Number(b.level === 'error') - Number(a.level === 'error')).slice(0, 2);
-  const batteryColor = percent <= 15 ? 'text-red-500' : percent <= 30 ? 'text-amber-400' : 'text-emerald-400';
-  const batteryBarColor = percent <= 15 ? 'bg-red-500' : percent <= 30 ? 'bg-amber-400' : 'bg-emerald-400';
+  const batteryColor = percent < 20 ? 'text-red-500' : percent <= 50 ? 'text-amber-400' : 'text-emerald-500';
+  const batteryBarColor = brakeActive
+    ? 'animate-pulse bg-emerald-400'
+    : percent < 20 ? 'bg-red-500' : percent <= 50 ? 'bg-amber-400' : 'bg-emerald-500';
+  const erpmDifference = frontDataAvailable && rearDataAvailable
+    ? Math.abs(Math.abs(frontErpm) - Math.abs(rearErpm))
+    : null;
+  const possibleWheelSlip = erpmDifference !== null && erpmDifference > 3000;
   const [mapOpen, setMapOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
 
@@ -103,7 +126,18 @@ const HudView: React.FC<HudViewProps> = ({
     if (startX === null || startY === null || !end) return;
     const dx = end.clientX - startX;
     const dy = end.clientY - startY;
-    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.25) setMapOpen(dx < 0);
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.25) {
+      if (dx < 0) {
+        setAdvancedOpen(false);
+        setMapOpen(true);
+      } else if (mapOpen) {
+        setMapOpen(false);
+      } else if (advancedOpen) {
+        setAdvancedOpen(false);
+      } else {
+        setAdvancedOpen(true);
+      }
+    }
     touchStartX.current = null;
     touchStartY.current = null;
   };
@@ -141,7 +175,7 @@ const HudView: React.FC<HudViewProps> = ({
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
         >
-          <div className={`absolute inset-y-0 left-0 z-10 flex items-center justify-center gap-1 transition-[width] duration-700 ease-in-out ${mapOpen ? 'w-[48%]' : 'w-full'}`}>
+          <div className={`absolute inset-y-0 left-0 z-10 flex items-center justify-center gap-1 transition-[width,transform,opacity] duration-700 ease-in-out ${mapOpen ? 'w-[48%]' : advancedOpen ? 'w-full -translate-x-full opacity-0' : 'w-full'}`}>
             <Lamp side="ПЕРЕД" level={frontLevel} detail={frontDetail} />
             <div className="min-w-0 flex-1 text-center">
               <div className="mb-1 text-[9px] font-semibold tracking-[0.28em] text-white/45 sm:text-xs">СКОРОСТЬ</div>
@@ -156,23 +190,83 @@ const HudView: React.FC<HudViewProps> = ({
             {!mapOpen && <Lamp side="ЗАД" level={rearLevel} detail={rearDetail} />}
           </div>
 
-          <div className={`hud-map-panel absolute inset-y-0 right-0 z-20 w-[58%] transition-transform duration-700 ease-in-out ${mapOpen ? 'translate-x-0' : 'translate-x-[105%]'}`}>
+          <div className={`hud-map-panel absolute inset-y-0 right-0 z-20 w-[58%] transition-transform duration-700 ease-in-out ${mapOpen && !advancedOpen ? 'translate-x-0' : 'translate-x-[105%]'}`}>
             <div className="pointer-events-none absolute inset-y-0 left-0 z-30 w-10 bg-gradient-to-r from-black via-black/75 to-transparent sm:w-16" />
             <div className="h-full overflow-hidden border-y border-l border-white/20 bg-black/90 shadow-[-24px_0_55px_rgba(0,0,0,0.65)]">
               <RouteRecorder apiKey={mapsApiKey} onIssue={onRouteIssue} hudCompact speedKmh={recordedSpeedKmh} powerKw={recordedPowerKw} />
             </div>
           </div>
 
+          <div className={`absolute inset-0 z-30 transition-[transform,opacity] duration-500 ease-out ${advancedOpen ? 'translate-x-0 opacity-100' : 'pointer-events-none translate-x-full opacity-0'}`} aria-hidden={!advancedOpen}>
+            <div className="flex h-full flex-col border border-white/15 bg-black/95 p-2 sm:p-4">
+              <div className="mb-1.5 flex items-center justify-between border-b border-white/15 pb-1.5">
+                <div className="text-[9px] font-black tracking-[0.18em] text-white/75 sm:text-xs">ПРОДВИНУТЫЕ ПОКАЗАТЕЛИ</div>
+                <span className="text-[7px] font-bold tracking-wider text-white/30 sm:text-[9px]">VESC • ID 0 / ID 1</span>
+              </div>
+              <div className="grid min-h-0 flex-1 grid-cols-2 gap-1.5 sm:gap-2">
+                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                  <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">ERPM • ПЕРЕД</span>
+                  <span className="tabular-nums text-sm font-semibold sm:text-xl">{frontDataAvailable ? Math.round(frontErpm).toLocaleString('ru-RU') : '—'}</span>
+                </div>
+                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                  <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">ERPM • ЗАД</span>
+                  <span className="tabular-nums text-sm font-semibold sm:text-xl">{rearDataAvailable ? Math.round(rearErpm).toLocaleString('ru-RU') : '—'}</span>
+                </div>
+                <div className={`flex flex-col justify-between border p-1.5 sm:p-2.5 ${possibleWheelSlip ? 'border-amber-400/70 bg-amber-950/20' : 'border-white/15 bg-white/[0.025]'}`}>
+                  <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">Δ ERPM</span>
+                  <span className={`tabular-nums text-sm font-semibold sm:text-xl ${possibleWheelSlip ? 'text-amber-300' : 'text-white/60'}`}>
+                    {erpmDifference === null ? '—' : Math.round(erpmDifference).toLocaleString('ru-RU')}
+                  </span>
+                  <span className={`text-[6px] font-bold sm:text-[8px] ${possibleWheelSlip ? 'text-amber-300' : 'text-white/25'}`}>
+                    {possibleWheelSlip ? 'ВОЗМОЖНА ПРОБУКСОВКА' : 'ПОРОГ 3 000'}
+                  </span>
+                </div>
+                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                  <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">FW ТОК • ПЕРЕД / ЗАД</span>
+                  <span className="tabular-nums text-xs font-semibold sm:text-lg">
+                    {frontDataAvailable ? fwFrontAmps.toFixed(1) : '—'} / {rearDataAvailable ? fwRearAmps.toFixed(1) : '—'} <span className="text-[8px] text-white/45">А</span>
+                  </span>
+                </div>
+                <div className="flex flex-col justify-between border border-white/15 bg-white/[0.025] p-1.5 sm:p-2.5">
+                  <span className="text-[7px] font-bold tracking-wider text-white/45 sm:text-[9px]">А·Ч ПОТРЕБЛЕНО</span>
+                  <span className="tabular-nums text-sm font-semibold sm:text-xl">{ampHoursConsumed.toFixed(2)} <span className="text-[8px] text-white/45">А·ч</span></span>
+                </div>
+                <div className={`flex flex-col justify-between border p-1.5 sm:p-2.5 ${brakeActive ? 'border-emerald-500/60 bg-emerald-950/20' : 'border-white/15 bg-white/[0.025]'}`}>
+                  <span className={`text-[7px] font-bold tracking-wider sm:text-[9px] ${brakeActive ? 'text-emerald-400' : 'text-white/45'}`}>А·Ч РЕКУПЕРАЦИЯ</span>
+                  <span className={`tabular-nums text-sm font-semibold sm:text-xl ${brakeActive ? 'animate-pulse text-emerald-400' : 'text-white/70'}`}>{ampHoursRegen.toFixed(2)} <span className="text-[8px] text-white/45">А·ч</span></span>
+                </div>
+              </div>
+              <div className="mt-1.5 text-center text-[6px] text-white/25 sm:text-[8px]">Разница ERPM выше 3 000 — только признак возможной пробуксовки; HUD не управляет тягой.</div>
+            </div>
+          </div>
+
           <button
             type="button"
-            onClick={() => setMapOpen((open) => !open)}
-            className={`absolute bottom-2 z-40 flex items-center gap-1 border border-white/25 bg-black/85 px-2 py-1.5 text-[8px] font-bold tracking-widest text-white/75 transition-all duration-700 ${mapOpen ? 'right-[59%]' : 'right-2'}`}
-            aria-label={mapOpen ? 'Скрыть карту' : 'Открыть карту'}
+            onClick={() => {
+              const opening = !mapOpen || advancedOpen;
+              setMapOpen(opening);
+              if (opening) setAdvancedOpen(false);
+            }}
+            className={`absolute bottom-2 z-40 flex items-center gap-1 border border-white/25 bg-black/85 px-2 py-1.5 text-[8px] font-bold tracking-widest text-white/75 transition-all duration-700 ${mapOpen && !advancedOpen ? 'right-2' : 'right-2'}`}
+            aria-label={mapOpen && !advancedOpen ? 'Скрыть карту' : 'Открыть карту'}
           >
-            {mapOpen ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
-            {mapOpen ? 'СКОРОСТЬ' : 'КАРТА'}
+            {mapOpen && !advancedOpen ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
+            {mapOpen && !advancedOpen ? 'СКОРОСТЬ' : 'КАРТА'}
           </button>
-          {!mapOpen && <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 text-[7px] font-bold tracking-[0.16em] text-white/20 sm:text-[9px]">СВАЙП ВЛЕВО • КАРТА</div>}
+          <button
+            type="button"
+            onClick={() => {
+              const opening = !advancedOpen;
+              setAdvancedOpen(opening);
+              if (opening) setMapOpen(false);
+            }}
+            className="absolute bottom-2 left-2 z-40 flex items-center gap-1 border border-white/25 bg-black/85 px-2 py-1.5 text-[8px] font-bold tracking-widest text-white/75"
+            aria-label={advancedOpen ? 'Вернуться к спидометру' : 'Открыть продвинутые показатели'}
+          >
+            {advancedOpen ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
+            {advancedOpen ? 'СКОРОСТЬ' : 'ДЕТАЛИ'}
+          </button>
+          {!mapOpen && !advancedOpen && <div className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 text-[7px] font-bold tracking-[0.16em] text-white/20 sm:text-[9px]">СВАЙП • ДЕТАЛИ / КАРТА</div>}
         </section>
 
         <section aria-label="Динамика разгона" className={`grid grid-cols-5 border-y border-white/15 bg-white/[0.025] transition-opacity duration-500 ${mapOpen ? 'opacity-70' : 'opacity-100'}`}>

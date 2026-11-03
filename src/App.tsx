@@ -104,29 +104,6 @@ const emptyBestTimes = (): DragRunStats['bestTimes'] => ({
   100: null,
 });
 
-function estimateSocFromRestVoltage(
-  packVoltage: number,
-  cells: number,
-  chemistry: 'liion' | 'lifepo4',
-  cutoffEndV: number
-): number {
-  if (packVoltage <= 0 || cells <= 0) return 0;
-  const cellVoltage = packVoltage / cells;
-  const curve: [number, number][] = chemistry === 'liion'
-    ? [[2.9, 3], [3.0, 5], [3.2, 10], [3.3, 17], [3.4, 27], [3.5, 40], [3.6, 55], [3.7, 68], [3.8, 80], [3.9, 90], [4.0, 95], [4.1, 98], [4.2, 100]]
-    : [[2.9, 2], [3.0, 5], [3.1, 15], [3.2, 45], [3.25, 65], [3.3, 80], [3.35, 90], [3.4, 95], [3.5, 98], [3.65, 100]];
-  const points = ([[cutoffEndV / cells, 0], ...curve] as [number, number][]).sort((a, b) => a[0] - b[0]);
-  if (cellVoltage <= points[0][0]) return 0;
-  for (let i = 1; i < points.length; i++) {
-    const [upperV, upperPct] = points[i];
-    const [lowerV, lowerPct] = points[i - 1];
-    if (cellVoltage <= upperV) {
-      const ratio = (cellVoltage - lowerV) / Math.max(0.001, upperV - lowerV);
-      return Math.max(0, Math.min(100, Math.round(lowerPct + ratio * (upperPct - lowerPct))));
-    }
-  }
-  return 100;
-}
 
 type ControllerIndicatorLevel = 'ok' | 'warning' | 'error';
 
@@ -200,8 +177,9 @@ export const App: React.FC = () => {
   const [odometerKm, setOdometerKm] = useState<number>(loadTotalOdometerKm);
   const [rideSeconds, setRideSeconds] = useState<number>(0);
   const [tripStartWh, setTripStartWh] = useState<number>(0);
+  const [tripStartConsumedAh, setTripStartConsumedAh] = useState<number>(0);
+  const [tripStartRegenAh, setTripStartRegenAh] = useState<number>(0);
   const [highestIdleVoltage, setHighestIdleVoltage] = useState<number>(0);
-  const socAnchorRef = useRef<{ netAh: number; percent: number } | null>(null);
   const [dragStats, setDragStats] = useState<DragRunStats>({
     state: 'ready',
     currentSec: 0,
@@ -1201,38 +1179,17 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Hybrid SOC: nonlinear resting-voltage curve, corrected by the two VESC Ah counters during a ride.
+  // Simple VESC V_in battery gauge: 43.0 V = 0%, 67.2 V = 100%.
   const restV = highestIdleVoltage > 0 ? Math.max(packVoltage, highestIdleVoltage) : packVoltage;
   const cellVoltage = config.batteryCells > 0 ? packVoltage / config.batteryCells : 0;
   const rawWhTotal = frontMasterTelemetry.wattHours + rearSlaveTelemetry.wattHours;
   const regenWhTotal =
     frontMasterTelemetry.wattHoursCharged + rearSlaveTelemetry.wattHoursCharged;
-  const netAhCounter =
-    frontMasterTelemetry.ampHours + rearSlaveTelemetry.ampHours -
-    frontMasterTelemetry.ampHoursCharged - rearSlaveTelemetry.ampHoursCharged;
-  const voltageSocPct = estimateSocFromRestVoltage(
-    restV,
-    config.batteryCells,
-    config.batteryChemistry,
-    config.cutoffEndV
-  );
-
-  useEffect(() => {
-    if (packVoltage < 20) return;
-    const capacity = Math.max(1, config.batteryCapacityAh);
-    const anchor = socAnchorRef.current;
-    if (!anchor || Math.abs(netAhCounter - anchor.netAh) > capacity * 1.5) {
-      socAnchorRef.current = { netAh: netAhCounter, percent: voltageSocPct };
-    }
-  }, [packVoltage, netAhCounter, voltageSocPct, config.batteryCapacityAh]);
-
-  const socAnchor = socAnchorRef.current;
-  const coulombSocPct = socAnchor
-    ? socAnchor.percent - ((netAhCounter - socAnchor.netAh) / Math.max(1, config.batteryCapacityAh)) * 100
-    : voltageSocPct;
-  const batteryPct = packVoltage < 10
-    ? 0
-    : Math.round(Math.max(0, Math.min(100, coulombSocPct * 0.8 + voltageSocPct * 0.2)));
+  const consumedAhTotal = frontMasterTelemetry.ampHours + rearSlaveTelemetry.ampHours;
+  const regenAhTotal = frontMasterTelemetry.ampHoursCharged + rearSlaveTelemetry.ampHoursCharged;
+  const ampHoursConsumedTrip = Math.max(0, consumedAhTotal - tripStartConsumedAh);
+  const ampHoursRegenTrip = Math.max(0, regenAhTotal - tripStartRegenAh);
+  const batteryPct = Math.round(Math.max(0, Math.min(100, ((packVoltage - 43) / (67.2 - 43)) * 100)));
   const sagDelta = Math.max(0, restV - packVoltage);
 
   const netWhTrip = Math.max(0, rawWhTotal - regenWhTotal - tripStartWh);
@@ -1240,8 +1197,15 @@ export const App: React.FC = () => {
     tripDistanceKm > 0.15
       ? Math.max(14, Math.min(120, netWhTrip / tripDistanceKm))
       : 30.0;
-  const usablePackWh = config.batteryCells * 3.7 * config.batteryCapacityAh * (batteryPct / 100);
-  const estimatedRangeKm = usablePackWh / dynamicWhPerKm;
+  const netAhTrip = Math.max(0, ampHoursConsumedTrip - ampHoursRegenTrip);
+  const dynamicAhPerKm = tripDistanceKm > 0.15 && netAhTrip > 0.05
+    ? Math.max(0.15, Math.min(4, netAhTrip / tripDistanceKm))
+    : null;
+  const availablePackAh = config.batteryCapacityAh * (batteryPct / 100);
+  const usablePackWh = config.batteryCells * 3.7 * availablePackAh;
+  const estimatedRangeKm = dynamicAhPerKm !== null
+    ? availablePackAh / dynamicAhPerKm
+    : usablePackWh / dynamicWhPerKm;
   const rideDurationText = formatDuration(rideSeconds);
 
   const computerMetrics: ComputedComputerMetrics = {
@@ -1280,6 +1244,8 @@ export const App: React.FC = () => {
     setTripDistanceKm(0);
     setRideSeconds(0);
     setTripStartWh(rawWhTotal - regenWhTotal);
+    setTripStartConsumedAh(consumedAhTotal);
+    setTripStartRegenAh(regenAhTotal);
     setPeaks({
       maxSpeedKmh: 0,
       maxPowerWatts: 0,
@@ -1372,6 +1338,14 @@ export const App: React.FC = () => {
     return (
       <HudView
         speedKmh={speedSigned}
+        frontErpm={frontMasterTelemetry.erpm}
+        rearErpm={rearSlaveTelemetry.erpm}
+        frontDataAvailable={topology === 'sim' || frontMasterTelemetry.updatedAt > 0}
+        rearDataAvailable={topology === 'sim' || rearSlaveTelemetry.updatedAt > 0}
+        fwFrontAmps={Math.abs(frontMasterTelemetry.avgId)}
+        fwRearAmps={Math.abs(rearSlaveTelemetry.avgId)}
+        ampHoursConsumed={ampHoursConsumedTrip}
+        ampHoursRegen={ampHoursRegenTrip}
         recordedSpeedKmh={topology === 'sim' || link1Name ? Math.abs(speedSigned) : undefined}
         recordedPowerKw={topology === 'sim' || link1Name ? totalPowerWatts / 1000 : undefined}
         accelerationTimes={dragStats.bestTimes}
