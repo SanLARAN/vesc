@@ -146,7 +146,9 @@ export const WidgetGrid: React.FC<WidgetGridProps> = ({
     switch (id) {
       case 'battery': {
         const batteryColor = metrics.batteryPct < 20 ? 'text-red-500' : metrics.batteryPct <= 50 ? 'text-amber-400' : 'text-emerald-500';
-        const batteryBarColor = metrics.batteryPct < 20 ? 'bg-red-500' : metrics.batteryPct <= 50 ? 'bg-amber-400' : 'bg-emerald-500';
+        const batteryBarColor = metrics.totalBattCurrent < -0.6
+          ? 'animate-pulse bg-emerald-400'
+          : metrics.batteryPct < 20 ? 'bg-red-500' : metrics.batteryPct <= 50 ? 'bg-amber-400' : 'bg-emerald-500';
         return (
           <div className="space-y-2.5">
             <div className="flex items-baseline justify-between gap-2">

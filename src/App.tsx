@@ -177,6 +177,8 @@ export const App: React.FC = () => {
   const [odometerKm, setOdometerKm] = useState<number>(loadTotalOdometerKm);
   const [rideSeconds, setRideSeconds] = useState<number>(0);
   const [tripStartWh, setTripStartWh] = useState<number>(0);
+  const [tripStartConsumedAh, setTripStartConsumedAh] = useState<number>(0);
+  const [tripStartRegenAh, setTripStartRegenAh] = useState<number>(0);
   const [highestIdleVoltage, setHighestIdleVoltage] = useState<number>(0);
   const [dragStats, setDragStats] = useState<DragRunStats>({
     state: 'ready',
@@ -1183,6 +1185,10 @@ export const App: React.FC = () => {
   const rawWhTotal = frontMasterTelemetry.wattHours + rearSlaveTelemetry.wattHours;
   const regenWhTotal =
     frontMasterTelemetry.wattHoursCharged + rearSlaveTelemetry.wattHoursCharged;
+  const consumedAhTotal = frontMasterTelemetry.ampHours + rearSlaveTelemetry.ampHours;
+  const regenAhTotal = frontMasterTelemetry.ampHoursCharged + rearSlaveTelemetry.ampHoursCharged;
+  const ampHoursConsumedTrip = Math.max(0, consumedAhTotal - tripStartConsumedAh);
+  const ampHoursRegenTrip = Math.max(0, regenAhTotal - tripStartRegenAh);
   const batteryPct = Math.round(Math.max(0, Math.min(100, ((packVoltage - 43) / (67.2 - 43)) * 100)));
   const sagDelta = Math.max(0, restV - packVoltage);
 
@@ -1231,6 +1237,8 @@ export const App: React.FC = () => {
     setTripDistanceKm(0);
     setRideSeconds(0);
     setTripStartWh(rawWhTotal - regenWhTotal);
+    setTripStartConsumedAh(consumedAhTotal);
+    setTripStartRegenAh(regenAhTotal);
     setPeaks({
       maxSpeedKmh: 0,
       maxPowerWatts: 0,
@@ -1323,6 +1331,14 @@ export const App: React.FC = () => {
     return (
       <HudView
         speedKmh={speedSigned}
+        frontErpm={frontMasterTelemetry.erpm}
+        rearErpm={rearSlaveTelemetry.erpm}
+        frontDataAvailable={topology === 'sim' || frontMasterTelemetry.updatedAt > 0}
+        rearDataAvailable={topology === 'sim' || rearSlaveTelemetry.updatedAt > 0}
+        fwFrontAmps={Math.abs(frontMasterTelemetry.avgId)}
+        fwRearAmps={Math.abs(rearSlaveTelemetry.avgId)}
+        ampHoursConsumed={ampHoursConsumedTrip}
+        ampHoursRegen={ampHoursRegenTrip}
         recordedSpeedKmh={topology === 'sim' || link1Name ? Math.abs(speedSigned) : undefined}
         recordedPowerKw={topology === 'sim' || link1Name ? totalPowerWatts / 1000 : undefined}
         accelerationTimes={dragStats.bestTimes}
